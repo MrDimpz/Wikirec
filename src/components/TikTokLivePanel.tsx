@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { Eye, Gift, Heart, Radio, Send, Terminal, Wifi, WifiOff, AlertTriangle, X, Check } from 'lucide-react';
 import { LiveChatItem, PublicGameState, SearchWordSlot, TikTokConnectionStatus } from '../shared/types';
+import { getOrInitTabSessionId } from '../utils/session';
 
 export interface SocketChatEvent {
   uniqueId: string;
@@ -134,6 +135,14 @@ export const TikTokLivePanel: React.FC<TikTokLivePanelProps> = ({
     const socket = io();
     socketRef.current = socket;
 
+    // Register this streamer to join isolated room and track activity
+    if (authorizedStreamer?.username) {
+      socket.emit('register-streamer', {
+        username: authorizedStreamer.username,
+        sessionId: getOrInitTabSessionId(),
+      });
+    }
+
     socket.on('tiktok-connected', (payload: { username: string; roomId: string }) => {
       setConnState('connected');
       setConnectedInfo(payload);
@@ -151,6 +160,14 @@ export const TikTokLivePanel: React.FC<TikTokLivePanelProps> = ({
       setConnState('disconnected');
       setConnectedInfo(null);
       onConnChangeRef.current?.(false, null);
+    });
+
+    socket.on('streamer-timeout', (data: any) => {
+      setConnState('disconnected');
+      setConnectedInfo(null);
+      setErrorMessage(data?.message || 'Logged out due to 20 minutes of inactivity');
+      onConnChangeRef.current?.(false, null);
+      onLogoutStreamer?.();
     });
 
     socket.on('chat-message', (data: SocketChatEvent) => {
@@ -202,7 +219,17 @@ export const TikTokLivePanel: React.FC<TikTokLivePanelProps> = ({
       socket.disconnect();
       socketRef.current = null;
     };
-  }, []);
+  }, [authorizedStreamer?.username, onLogoutStreamer]);
+
+  // When authorized streamer changes, re-register on socket
+  useEffect(() => {
+    if (socketRef.current && authorizedStreamer?.username) {
+      socketRef.current.emit('register-streamer', {
+        username: authorizedStreamer.username,
+        sessionId: getOrInitTabSessionId(),
+      });
+    }
+  }, [authorizedStreamer?.username]);
 
   const handleConnect = (e: React.FormEvent) => {
     e.preventDefault();
@@ -212,12 +239,16 @@ export const TikTokLivePanel: React.FC<TikTokLivePanelProps> = ({
     socketRef.current.emit('connect-tiktok', {
       username: username.trim(),
       key: authorizedStreamer?.key,
+      sessionId: getOrInitTabSessionId(),
     });
   };
 
   const handleDisconnect = () => {
     if (!socketRef.current) return;
-    socketRef.current.emit('disconnect-tiktok');
+    socketRef.current.emit('disconnect-tiktok', {
+      username: authorizedStreamer?.username || username.trim(),
+      sessionId: getOrInitTabSessionId(),
+    });
   };
 
   const getSelectedViewer = () => {
@@ -230,11 +261,12 @@ export const TikTokLivePanel: React.FC<TikTokLivePanelProps> = ({
   const emitSimulatedWord = (word: string) => {
     if (!socketRef.current || !word.trim()) return;
     const viewer = getSelectedViewer();
-    const payload: SocketChatEvent = {
+    const payload = {
       uniqueId: viewer.uniqueId,
       nickname: viewer.nickname,
       comment: word.trim().toLowerCase(),
       profilePictureUrl: viewer.profilePictureUrl,
+      streamerUsername: authorizedStreamer?.username || username.trim(),
     };
     socketRef.current.emit('chat-message', payload);
   };
@@ -269,6 +301,7 @@ export const TikTokLivePanel: React.FC<TikTokLivePanelProps> = ({
         nickname: viewer.nickname,
         comment: chosen,
         profilePictureUrl: viewer.profilePictureUrl,
+        streamerUsername: authorizedStreamer?.username || username.trim(),
       });
     } catch {}
   };
@@ -276,12 +309,13 @@ export const TikTokLivePanel: React.FC<TikTokLivePanelProps> = ({
   const handleSimulateLike = () => {
     if (!socketRef.current) return;
     const viewer = getSelectedViewer();
-    const payload: SocketLikeEvent = {
+    const payload = {
       uniqueId: viewer.uniqueId,
       nickname: viewer.nickname,
       likeCount: simLikeCount,
       totalLikeCount: status.likesCount + simLikeCount,
       profilePictureUrl: viewer.profilePictureUrl,
+      streamerUsername: authorizedStreamer?.username || username.trim(),
     };
     socketRef.current.emit('like-event', payload);
   };
@@ -289,7 +323,7 @@ export const TikTokLivePanel: React.FC<TikTokLivePanelProps> = ({
   const handleSimulateGift = () => {
     if (!socketRef.current) return;
     const viewer = getSelectedViewer();
-    const payload: SocketGiftEvent = {
+    const payload = {
       uniqueId: viewer.uniqueId,
       nickname: viewer.nickname,
       giftName: simGiftName,
@@ -297,6 +331,7 @@ export const TikTokLivePanel: React.FC<TikTokLivePanelProps> = ({
       repeatCount: 1,
       repeatEnd: true,
       profilePictureUrl: viewer.profilePictureUrl,
+      streamerUsername: authorizedStreamer?.username || username.trim(),
     };
     socketRef.current.emit('gift-event', payload);
   };

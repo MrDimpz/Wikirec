@@ -39,6 +39,7 @@ interface ClientMeta {
   sessionId: string;
   displayName: string;
   mode: GameMode;
+  streamerUsername?: string | null;
 }
 
 function normalizeChatData(data: any) {
@@ -204,9 +205,50 @@ async function startServer() {
   let mpCountdownInterval: NodeJS.Timeout | null = null;
   let wwCountdownInterval: NodeJS.Timeout | null = null;
 
-  // TikTok Live Connection state
-  let tiktokConn: InstanceType<typeof WebcastPushConnection> | null = null;
-  const tiktokStatus: TikTokConnectionStatus = {
+  // Per-Streamer Session and TikTok Live Connection Store
+  interface StreamerSession {
+    username: string; // clean lowercase handle without @
+    sessionId: string; // client tab session ID
+    token: string;
+    lastActivity: number;
+    conn: any | null;
+    reconnectTimer: NodeJS.Timeout | null;
+    desiredLiveUsername: string | null;
+    currentRoomId: string | null;
+    status: TikTokConnectionStatus;
+    chatHistory: LiveChatItem[];
+  }
+
+  const activeStreamers = new Map<string, StreamerSession>();
+
+  function createDefaultStreamerSession(username: string, sessionId: string): StreamerSession {
+    return {
+      username,
+      sessionId,
+      token: `st_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      lastActivity: Date.now(),
+      conn: null,
+      reconnectTimer: null,
+      desiredLiveUsername: null,
+      currentRoomId: null,
+      status: {
+        connected: false,
+        mode: 'webhook-ready',
+        username,
+        tikfinityUrl: null,
+        viewerCount: 0,
+        chatEventsProcessed: 0,
+        guessesFromChat: 0,
+        likesCount: 0,
+        giftsDiamonds: 0,
+        lastError: null,
+      },
+      chatHistory: [],
+    };
+  }
+
+  // Fallback status for global health checks
+  const fallbackTikTokStatus: TikTokConnectionStatus = {
     connected: false,
     mode: 'webhook-ready',
     username: null,
@@ -218,7 +260,7 @@ async function startServer() {
     giftsDiamonds: 0,
     lastError: null,
   };
-  let currentRoomId: string | null = null;
+  let tiktokStatus: TikTokConnectionStatus = fallbackTikTokStatus;
 
   // Registered & Authorized Streamers list with individual admin-provided keys
   let authorizedUsers: AuthorizedUser[] = [
@@ -378,12 +420,79 @@ async function startServer() {
     return singleWord;
   }
 
-  // Process a TikTok chat message (from live stream or simulation) into the chat box and active game(s)
-  function handleTikTokChatInGame(rawData: any) {
+  function cleanupStreamerSession(cleanUsername: string, reason = 'logout') {
+    const session = activeStreamers.get(cleanUsername);
+    if (!session) return;
+
+    if (session.reconnectTimer) {
+      clearTimeout(session.reconnectTimer);
+      session.reconnectTimer = null;
+    }
+
+    if (session.conn) {
+      try {
+        session.conn.removeAllListeners();
+        session.conn.disconnect();
+      } catch {}
+      session.conn = null;
+    }
+
+    session.desiredLiveUsername = null;
+    session.status.connected = false;
+    session.status.username = null;
+    session.currentRoomId = null;
+
+    io.to(`streamer:${cleanUsername}`).emit('tiktok-disconnected');
+    io.to(`streamer:${cleanUsername}`).emit('tiktok-status', session.status);
+    if (reason === 'inactivity') {
+      io.to(`streamer:${cleanUsername}`).emit('streamer-timeout', {
+        reason: 'inactivity',
+        message: 'Logged out after 20 minutes of inactivity (no chat or user activity)',
+      });
+    }
+
+    for (const [ws, meta] of clients.entries()) {
+      if (meta.streamerUsername === cleanUsername && ws.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify({
+            type: 'tiktok:status',
+            status: session.status,
+          })
+        );
+        if (reason === 'inactivity') {
+          ws.send(
+            JSON.stringify({
+              type: 'streamer:timeout',
+              message: 'Logged out after 20 minutes of inactivity',
+            })
+          );
+        }
+      }
+    }
+
+    activeStreamers.delete(cleanUsername);
+  }
+
+  // Automatic 20-minute inactivity sweeper (user + chat activity combined)
+  setInterval(() => {
+    const now = Date.now();
+    const INACTIVITY_MS = 20 * 60 * 1000;
+    for (const [username, session] of activeStreamers.entries()) {
+      if (now - session.lastActivity >= INACTIVITY_MS) {
+        cleanupStreamerSession(username, 'inactivity');
+      }
+    }
+  }, 15000);
+
+  function handleStreamerChatInGame(cleanUsername: string, rawData: any) {
+    const session = activeStreamers.get(cleanUsername);
+    if (!session) return;
+
     const data = normalizeChatData(rawData);
     if (!data.comment) return;
 
-    tiktokStatus.chatEventsProcessed += 1;
+    session.status.chatEventsProcessed += 1;
+    session.lastActivity = Date.now();
 
     const finder: FinderInfo = {
       displayName: data.nickname || data.uniqueId,
@@ -392,11 +501,9 @@ async function startServer() {
       profileImage: data.profilePictureUrl || undefined,
     };
 
-    // Only accept single-word alphabetical answers for the puzzle itself (ignoring capitalization & punctuation),
-    // while ALWAYS showing all chat messages (including multi-word and numbers) in the Live Chat Stream box.
     const singleWord = extractSingleWordFromChat(data.comment);
     if (!singleWord) {
-      pushLiveChatItem({
+      const item: LiveChatItem = {
         id: `tt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         platform: 'tiktok',
         username: data.uniqueId,
@@ -406,13 +513,22 @@ async function startServer() {
         guessResult: 'chat',
         timestamp: Date.now(),
         eventType: 'chat',
-      });
-      broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+      };
+      session.chatHistory.push(item);
+      if (session.chatHistory.length > 50) session.chatHistory.shift();
+
+      io.to(`streamer:${cleanUsername}`).emit('chat-message', item);
+      for (const [ws, meta] of clients.entries()) {
+        if (meta.streamerUsername === cleanUsername && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'chat:event', item }));
+          ws.send(JSON.stringify({ type: 'tiktok:status', status: session.status }));
+        }
+      }
       return;
     }
 
     const bestOutcome = multiplayerGame.guess(singleWord, finder);
-    tiktokStatus.guessesFromChat += 1;
+    session.status.guessesFromChat += 1;
 
     if (bestOutcome.result === 'correct') {
       broadcastAll({
@@ -421,33 +537,26 @@ async function startServer() {
       });
     }
 
-    // Also apply to any active solo/4x4 games currently open by connected clients so the streamer sees guesses in any mode
+    // Apply guess to any active solo/4x4 games for this streamer's client
     for (const [ws, meta] of clients.entries()) {
-      if (ws.readyState !== WebSocket.OPEN) continue;
-      if (meta.mode === 'wikiword-4x4') {
-        wikiword4x4Game.guess(singleWord, finder);
-        ws.send(
-          JSON.stringify({
-            type: 'game:state',
-            state: wikiword4x4Game.publicState(),
-          })
-        );
-      } else if (meta.mode === 'daily-solo' || meta.mode === 'practice-solo') {
-        const key = `${meta.sessionId}:${meta.mode}`;
-        const soloGame = soloGames.get(key);
-        if (soloGame) {
-          soloGame.guess(singleWord, finder);
-          ws.send(
-            JSON.stringify({
-              type: 'game:state',
-              state: soloGame.publicState(),
-            })
-          );
+      if (meta.streamerUsername === cleanUsername && ws.readyState === WebSocket.OPEN) {
+        if (meta.mode === 'daily-solo' || meta.mode === 'practice-solo') {
+          const key = `${meta.sessionId}:${meta.mode}`;
+          const soloGame = soloGames.get(key);
+          if (soloGame) {
+            soloGame.guess(singleWord, finder);
+            ws.send(
+              JSON.stringify({
+                type: 'game:state',
+                state: soloGame.publicState(),
+              })
+            );
+          }
         }
       }
     }
 
-    pushLiveChatItem({
+    const item: LiveChatItem = {
       id: `tt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       platform: 'tiktok',
       username: data.uniqueId,
@@ -460,9 +569,18 @@ async function startServer() {
       tierName: bestOutcome.tierName,
       timestamp: Date.now(),
       eventType: 'chat',
-    });
+    };
+    session.chatHistory.push(item);
+    if (session.chatHistory.length > 50) session.chatHistory.shift();
 
-    broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+    io.to(`streamer:${cleanUsername}`).emit('chat-message', item);
+    for (const [ws, meta] of clients.entries()) {
+      if (meta.streamerUsername === cleanUsername && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'chat:event', item }));
+        ws.send(JSON.stringify({ type: 'tiktok:status', status: session.status }));
+      }
+    }
+
     broadcastToMode('multiplayer', {
       type: 'game:state',
       state: multiplayerGame.publicState(),
@@ -473,9 +591,13 @@ async function startServer() {
     }
   }
 
-  function handleTikTokLikeInGame(rawData: any) {
+  function handleStreamerLikeInGame(cleanUsername: string, rawData: any) {
+    const session = activeStreamers.get(cleanUsername);
+    if (!session) return;
     const data = normalizeLikeData(rawData);
-    tiktokStatus.likesCount += data.likeCount;
+    session.status.likesCount += data.likeCount;
+    session.lastActivity = Date.now();
+
     const finder: FinderInfo = {
       displayName: data.nickname || data.uniqueId,
       platform: 'tiktok',
@@ -483,13 +605,23 @@ async function startServer() {
       profileImage: data.profilePictureUrl || undefined,
     };
     multiplayerGame.recordEngagement(finder, 'like', data.likeCount);
-    broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+
+    io.to(`streamer:${cleanUsername}`).emit('like-event', data);
+    for (const [ws, meta] of clients.entries()) {
+      if (meta.streamerUsername === cleanUsername && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'tiktok:status', status: session.status }));
+      }
+    }
   }
 
-  function handleTikTokGiftInGame(rawData: any) {
+  function handleStreamerGiftInGame(cleanUsername: string, rawData: any) {
+    const session = activeStreamers.get(cleanUsername);
+    if (!session) return;
     const data = normalizeGiftData(rawData);
     const totalDiamonds = data.diamondCount * data.repeatCount;
-    tiktokStatus.giftsDiamonds += totalDiamonds;
+    session.status.giftsDiamonds += totalDiamonds;
+    session.lastActivity = Date.now();
+
     const finder: FinderInfo = {
       displayName: data.nickname || data.uniqueId,
       platform: 'tiktok',
@@ -497,141 +629,152 @@ async function startServer() {
       profileImage: data.profilePictureUrl || undefined,
     };
     multiplayerGame.recordEngagement(finder, 'gift', totalDiamonds);
-    broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+
+    io.to(`streamer:${cleanUsername}`).emit('gift-event', data);
+    for (const [ws, meta] of clients.entries()) {
+      if (meta.streamerUsername === cleanUsername && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'tiktok:status', status: session.status }));
+      }
+    }
   }
 
-  function startTikTokConnection(cleanUsername: string, requestingSocket?: any) {
-    if (tiktokReconnectTimer) {
-      clearTimeout(tiktokReconnectTimer);
-      tiktokReconnectTimer = null;
-    }
-
-    // If already connected to the same username, keep the existing connection alive!
-    if (
-      tiktokConn &&
-      tiktokStatus.connected &&
-      tiktokStatus.username?.toLowerCase() === cleanUsername.toLowerCase()
-    ) {
-      const payload = {
-        username: tiktokStatus.username,
-        roomId: currentRoomId || 'live',
-      };
-      if (requestingSocket) requestingSocket.emit('tiktok-connected', payload);
-      io.emit('tiktok-connected', payload);
-      broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+  function startStreamerConnection(cleanUsername: string, requestingSocket?: any) {
+    const session = activeStreamers.get(cleanUsername);
+    if (!session) {
+      if (requestingSocket) {
+        requestingSocket.emit('tiktok-error', 'Streamer session not found. Please log in first.');
+      }
       return;
     }
 
-    if (tiktokConn) {
-      try {
-        tiktokConn.removeAllListeners();
-        tiktokConn.disconnect();
-      } catch {}
-      tiktokConn = null;
+    if (session.reconnectTimer) {
+      clearTimeout(session.reconnectTimer);
+      session.reconnectTimer = null;
     }
 
-    desiredTikTokUsername = cleanUsername;
+    // If already connected to this username, re-emit connected status
+    if (
+      session.conn &&
+      session.status.connected &&
+      session.status.username?.toLowerCase() === cleanUsername.toLowerCase()
+    ) {
+      const payload = {
+        username: session.status.username,
+        roomId: session.currentRoomId || 'live',
+      };
+      if (requestingSocket) requestingSocket.emit('tiktok-connected', payload);
+      io.to(`streamer:${cleanUsername}`).emit('tiktok-connected', payload);
+      io.to(`streamer:${cleanUsername}`).emit('tiktok-status', session.status);
+      return;
+    }
+
+    if (session.conn) {
+      try {
+        session.conn.removeAllListeners();
+        session.conn.disconnect();
+      } catch {}
+      session.conn = null;
+    }
+
+    session.desiredLiveUsername = cleanUsername;
     const conn = new WebcastPushConnection(cleanUsername);
-    tiktokConn = conn;
+    session.conn = conn;
 
     conn
       .connect()
       .then((state: any) => {
-        if (tiktokConn !== conn) return;
+        if (session.conn !== conn) return;
         const roomId = String(state?.roomId || state?.roomInfo?.id || 'live');
-        currentRoomId = roomId;
-        tiktokStatus.connected = true;
-        tiktokStatus.mode = 'tiktok-live';
-        tiktokStatus.username = cleanUsername;
-        tiktokStatus.lastError = null;
+        session.currentRoomId = roomId;
+        session.status.connected = true;
+        session.status.mode = 'tiktok-live';
+        session.status.username = cleanUsername;
+        session.status.lastError = null;
+        session.lastActivity = Date.now();
 
-        if (requestingSocket) {
-          requestingSocket.emit('tiktok-connected', {
-            username: cleanUsername,
-            roomId,
-          });
+        const payload = { username: cleanUsername, roomId };
+        if (requestingSocket) requestingSocket.emit('tiktok-connected', payload);
+        io.to(`streamer:${cleanUsername}`).emit('tiktok-connected', payload);
+        io.to(`streamer:${cleanUsername}`).emit('tiktok-status', session.status);
+
+        for (const [ws, meta] of clients.entries()) {
+          if (meta.streamerUsername === cleanUsername && ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: 'tiktok:status',
+                status: session.status,
+              })
+            );
+          }
         }
-        io.emit('tiktok-connected', {
-          username: cleanUsername,
-          roomId,
-        });
-        broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
       })
       .catch((err: any) => {
-        if (tiktokConn !== conn) return;
+        if (session.conn !== conn) return;
         const errMsg = err?.message || String(err);
-        // If we were already connected and a background reconnect failed transiently, retry if desiredTikTokUsername is set
-        if (desiredTikTokUsername === cleanUsername && tiktokStatus.connected) {
-          tiktokReconnectTimer = setTimeout(() => {
-            if (desiredTikTokUsername === cleanUsername) {
-              startTikTokConnection(cleanUsername);
-            }
-          }, 3000);
-          return;
-        }
-        tiktokStatus.connected = false;
-        tiktokStatus.lastError = errMsg;
+        session.status.connected = false;
+        session.status.lastError = errMsg;
         if (requestingSocket) requestingSocket.emit('tiktok-error', errMsg);
-        broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+        io.to(`streamer:${cleanUsername}`).emit('tiktok-status', session.status);
       });
 
     conn.on('chat', (data: any) => {
-      if (tiktokConn !== conn) return;
-      const normalized = normalizeChatData(data);
-      io.emit('chat-message', normalized);
-      handleTikTokChatInGame(normalized);
+      if (session.conn !== conn) return;
+      handleStreamerChatInGame(cleanUsername, data);
     });
 
     conn.on('like', (data: any) => {
-      if (tiktokConn !== conn) return;
-      const normalized = normalizeLikeData(data);
-      io.emit('like-event', normalized);
-      handleTikTokLikeInGame(normalized);
+      if (session.conn !== conn) return;
+      handleStreamerLikeInGame(cleanUsername, data);
     });
 
     conn.on('gift', (data: any) => {
-      if (tiktokConn !== conn) return;
-      const normalized = normalizeGiftData(data);
-      io.emit('gift-event', normalized);
-      handleTikTokGiftInGame(normalized);
+      if (session.conn !== conn) return;
+      handleStreamerGiftInGame(cleanUsername, data);
     });
 
     conn.on('disconnected', () => {
-      if (tiktokConn !== conn) return;
-      // Keep the live connection persistent across rounds by auto-reconnecting if the user did not manually disconnect
-      if (desiredTikTokUsername === cleanUsername) {
-        tiktokReconnectTimer = setTimeout(() => {
-          if (desiredTikTokUsername === cleanUsername) {
-            startTikTokConnection(cleanUsername);
+      if (session.conn !== conn) return;
+      if (session.desiredLiveUsername === cleanUsername) {
+        session.reconnectTimer = setTimeout(() => {
+          if (session.desiredLiveUsername === cleanUsername) {
+            startStreamerConnection(cleanUsername);
           }
-        }, 2000);
+        }, 2500);
         return;
       }
-      tiktokStatus.connected = false;
-      currentRoomId = null;
-      io.emit('tiktok-disconnected');
-      broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+      session.status.connected = false;
+      session.currentRoomId = null;
+      io.to(`streamer:${cleanUsername}`).emit('tiktok-disconnected');
+      io.to(`streamer:${cleanUsername}`).emit('tiktok-status', session.status);
     });
 
     conn.on('error', (err: any) => {
-      if (tiktokConn !== conn) return;
-      if (!tiktokStatus.connected && requestingSocket) {
+      if (session.conn !== conn) return;
+      if (!session.status.connected && requestingSocket) {
         requestingSocket.emit('tiktok-error', err?.message || String(err));
       }
     });
   }
 
-  // Socket.IO Real-Time TikTok Live Integration
+  // Socket.IO Real-Time TikTok Live Integration (Scoped per streamer)
   io.on('connection', (socket) => {
-    // Sync current TikTok state if already connected
-    if (tiktokStatus.connected && tiktokStatus.username) {
-      socket.emit('tiktok-connected', {
-        username: tiktokStatus.username,
-        roomId: currentRoomId || 'live',
-      });
-    }
+    socket.on('register-streamer', (payload: any) => {
+      const username = cleanStreamerUsername(payload?.username);
+      if (!username) return;
+      socket.join(`streamer:${username}`);
+      const session = activeStreamers.get(username);
+      if (session) {
+        session.lastActivity = Date.now();
+        socket.emit('tiktok-status', session.status);
+        if (session.status.connected) {
+          socket.emit('tiktok-connected', {
+            username: session.username,
+            roomId: session.currentRoomId || 'live',
+          });
+        }
+      }
+    });
 
-    // 1. connect-tiktok (receives username: string or { username: string, key?: string })
     socket.on('connect-tiktok', (payload: any) => {
       try {
         const raw =
@@ -642,6 +785,10 @@ async function startServer() {
           typeof payload === 'object' && payload !== null
             ? payload.key
             : undefined;
+        const sessionId =
+          typeof payload === 'object' && payload !== null
+            ? payload.sessionId
+            : '';
 
         const cleanUsername = cleanStreamerUsername(raw);
         if (!cleanUsername) {
@@ -649,7 +796,6 @@ async function startServer() {
           return;
         }
 
-        // Verify if user is registered in authorized streamers
         if (!isStreamerAuthorized(cleanUsername, key)) {
           socket.emit(
             'tiktok-error',
@@ -658,51 +804,67 @@ async function startServer() {
           return;
         }
 
-        startTikTokConnection(cleanUsername, socket);
+        socket.join(`streamer:${cleanUsername}`);
+        let session = activeStreamers.get(cleanUsername);
+        if (!session) {
+          session = createDefaultStreamerSession(cleanUsername, sessionId || socket.id);
+          activeStreamers.set(cleanUsername, session);
+        }
+        session.lastActivity = Date.now();
+
+        startStreamerConnection(cleanUsername, socket);
       } catch (err: any) {
         socket.emit('tiktok-error', err?.message || String(err));
       }
     });
 
-    // 2. disconnect-tiktok
-    socket.on('disconnect-tiktok', () => {
-      desiredTikTokUsername = null;
-      if (tiktokReconnectTimer) {
-        clearTimeout(tiktokReconnectTimer);
-        tiktokReconnectTimer = null;
+    socket.on('disconnect-tiktok', (payload?: any) => {
+      const rawUser = typeof payload === 'object' && payload !== null ? payload.username : payload;
+      const cleanUsername = cleanStreamerUsername(rawUser);
+      if (cleanUsername) {
+        const session = activeStreamers.get(cleanUsername);
+        if (session) {
+          if (session.reconnectTimer) {
+            clearTimeout(session.reconnectTimer);
+            session.reconnectTimer = null;
+          }
+          if (session.conn) {
+            try {
+              session.conn.removeAllListeners();
+              session.conn.disconnect();
+            } catch {}
+            session.conn = null;
+          }
+          session.desiredLiveUsername = null;
+          session.status.connected = false;
+          session.currentRoomId = null;
+          socket.emit('tiktok-disconnected');
+          io.to(`streamer:${cleanUsername}`).emit('tiktok-disconnected');
+          io.to(`streamer:${cleanUsername}`).emit('tiktok-status', session.status);
+        }
       }
-      if (tiktokConn) {
-        try {
-          tiktokConn.removeAllListeners();
-          tiktokConn.disconnect();
-        } catch {}
-        tiktokConn = null;
-      }
-      tiktokStatus.connected = false;
-      tiktokStatus.username = null;
-      currentRoomId = null;
-      socket.emit('tiktok-disconnected');
-      io.emit('tiktok-disconnected');
-      broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
     });
 
-    // 3. Simulation / Testing Passthrough Events
+    // Simulated / debug events scoped to a streamer's room
     socket.on('chat-message', (data: any) => {
-      const normalized = normalizeChatData(data);
-      io.emit('chat-message', normalized);
-      handleTikTokChatInGame(normalized);
+      const streamerUser = cleanStreamerUsername(data?.streamerUsername || data?.streamer);
+      if (streamerUser && activeStreamers.has(streamerUser)) {
+        handleStreamerChatInGame(streamerUser, data);
+      }
     });
 
     socket.on('like-event', (data: any) => {
-      const normalized = normalizeLikeData(data);
-      io.emit('like-event', normalized);
-      handleTikTokLikeInGame(normalized);
+      const streamerUser = cleanStreamerUsername(data?.streamerUsername || data?.streamer);
+      if (streamerUser && activeStreamers.has(streamerUser)) {
+        handleStreamerLikeInGame(streamerUser, data);
+      }
     });
 
     socket.on('gift-event', (data: any) => {
-      const normalized = normalizeGiftData(data);
-      io.emit('gift-event', normalized);
-      handleTikTokGiftInGame(normalized);
+      const streamerUser = cleanStreamerUsername(data?.streamerUsername || data?.streamer);
+      if (streamerUser && activeStreamers.has(streamerUser)) {
+        handleStreamerGiftInGame(streamerUser, data);
+      }
     });
   });
 
@@ -775,9 +937,11 @@ async function startServer() {
   });
 
   // Streamer Auth: Validate registered @username and admin-provided key
+  // Enforces single-active-session per @username and rejects concurrent logins
   app.post('/api/auth/validate-streamer', (req, res) => {
     const rawUsername = req.body?.username;
     const rawKey = req.body?.key;
+    const sessionId = String(req.body?.sessionId || '').trim();
     const username = cleanStreamerUsername(rawUsername);
     const key = String(rawKey || '').trim();
 
@@ -793,21 +957,101 @@ async function startServer() {
       (u) => cleanStreamerUsername(u.username) === username && String(u.key).trim() === key
     );
 
-    if (found) {
-      res.json({
-        ok: true,
-        valid: true,
-        user: {
-          username: found.username,
-          label: found.label,
-        },
-      });
-    } else {
-      res.status(401).json({
+    if (!found) {
+      return res.status(401).json({
         ok: false,
         valid: false,
         message: 'Invalid username or access key. Contact administrator for authorization.',
       });
+    }
+
+    const now = Date.now();
+    const INACTIVITY_MS = 20 * 60 * 1000;
+    const existing = activeStreamers.get(username);
+
+    if (existing) {
+      const isStale = now - existing.lastActivity >= INACTIVITY_MS;
+      if (isStale) {
+        // Automatically cleanup stale session older than 20 minutes
+        cleanupStreamerSession(username, 'inactivity');
+      } else if (sessionId && existing.sessionId && existing.sessionId !== sessionId) {
+        // Active session under this @username already running on another tab/device
+        return res.status(409).json({
+          ok: false,
+          valid: false,
+          isAlreadyLoggedIn: true,
+          message: `@${found.username} is already logged in on another device or window. Multiple simultaneous logins under the same @username are not permitted.`,
+        });
+      }
+    }
+
+    // Initialize or refresh streamer session
+    let session = activeStreamers.get(username);
+    if (!session) {
+      session = createDefaultStreamerSession(username, sessionId || `sess_${Date.now()}`);
+      activeStreamers.set(username, session);
+    } else {
+      if (sessionId) session.sessionId = sessionId;
+      session.lastActivity = now;
+    }
+
+    res.json({
+      ok: true,
+      valid: true,
+      sessionId: session.sessionId,
+      token: session.token,
+      user: {
+        username: found.username,
+        label: found.label,
+      },
+    });
+  });
+
+  // Streamer Activity: Heartbeat to keep session alive during user or chat interactions
+  app.post('/api/auth/streamer-activity', (req, res) => {
+    try {
+      const username = cleanStreamerUsername(req.body?.username);
+      const sessionId = String(req.body?.sessionId || '').trim();
+      if (!username) {
+        return res.status(400).json({ ok: false, message: 'Username required' });
+      }
+      const session = activeStreamers.get(username);
+      if (session) {
+        if (!sessionId || !session.sessionId || session.sessionId === sessionId) {
+          session.lastActivity = Date.now();
+          return res.json({ ok: true, lastActivity: session.lastActivity });
+        }
+      }
+      res.json({ ok: false });
+    } catch {
+      res.json({ ok: false });
+    }
+  });
+
+  // Streamer Logout: Explicit logout or window unload beacon cleanup
+  app.post('/api/auth/streamer-logout', (req, res) => {
+    try {
+      let body = req.body;
+      if (typeof body === 'string') {
+        try {
+          body = JSON.parse(body);
+        } catch {}
+      }
+      const rawUser = body?.username;
+      const sessionId = String(body?.sessionId || '').trim();
+      const username = cleanStreamerUsername(rawUser);
+
+      if (username) {
+        const session = activeStreamers.get(username);
+        if (session) {
+          if (!sessionId || !session.sessionId || session.sessionId === sessionId) {
+            cleanupStreamerSession(username, 'logout');
+          }
+        }
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
     }
   });
 
@@ -920,12 +1164,34 @@ async function startServer() {
         const meta = clients.get(ws);
         if (!meta) return;
 
-        if (msg.type === 'identify') {
+        if (msg.type === 'identify' || msg.type === 'streamer:identify') {
           if (msg.sessionId) meta.sessionId = String(msg.sessionId).slice(0, 64);
           if (msg.displayName) meta.displayName = String(msg.displayName).trim().slice(0, 28) || 'Explorer';
           if (msg.mode && ['multiplayer', 'daily-solo', 'practice-solo', 'wikiword-4x4'].includes(msg.mode)) {
             meta.mode = msg.mode as GameMode;
           }
+          if (msg.streamerUsername !== undefined) {
+            meta.streamerUsername = msg.streamerUsername ? cleanStreamerUsername(msg.streamerUsername) : null;
+          }
+
+          if (meta.streamerUsername) {
+            const session = activeStreamers.get(meta.streamerUsername);
+            if (session) {
+              session.lastActivity = Date.now();
+              ws.send(
+                JSON.stringify({
+                  type: 'tiktok:status',
+                  status: session.status,
+                })
+              );
+              if (session.chatHistory.length > 0) {
+                for (const item of session.chatHistory) {
+                  ws.send(JSON.stringify({ type: 'chat:event', item }));
+                }
+              }
+            }
+          }
+
           const game = await getGameForClient(meta);
           ws.send(
             JSON.stringify({
@@ -937,6 +1203,16 @@ async function startServer() {
             type: 'presence:update',
             presence: getViewerPresence(),
           });
+          return;
+        }
+
+        if (msg.type === 'streamer:activity') {
+          if (meta.streamerUsername) {
+            const session = activeStreamers.get(meta.streamerUsername);
+            if (session) {
+              session.lastActivity = Date.now();
+            }
+          }
           return;
         }
 
@@ -1082,11 +1358,29 @@ async function startServer() {
     });
 
     ws.on('close', () => {
+      const closedMeta = clients.get(ws);
       clients.delete(ws);
       broadcastAll({
         type: 'presence:update',
         presence: getViewerPresence(),
       });
+
+      if (closedMeta?.streamerUsername) {
+        const streamerUser = closedMeta.streamerUsername;
+        // Check after brief grace period (e.g. 3.5s for page reload) if any active sockets remain for this streamer
+        setTimeout(() => {
+          let hasOtherStreamerWs = false;
+          for (const remaining of clients.values()) {
+            if (remaining.streamerUsername === streamerUser) {
+              hasOtherStreamerWs = true;
+              break;
+            }
+          }
+          if (!hasOtherStreamerWs) {
+            cleanupStreamerSession(streamerUser, 'window_close');
+          }
+        }, 3500);
+      }
     });
   });
 

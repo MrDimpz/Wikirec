@@ -14,6 +14,7 @@ import { AdminAuthModal } from './components/AdminAuthModal';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { StreamerLoginModal } from './components/StreamerLoginModal';
 import { sfx } from './utils/sfx';
+import { getOrInitTabSessionId } from './utils/session';
 
 const STORAGE_NAME_KEY = 'wkt_display_name';
 const STORAGE_SESSION_KEY = 'wkt_session_id';
@@ -110,18 +111,29 @@ export default function App() {
   const [dismissedRoundId, setDismissedRoundId] = useState<string | null>(null);
 
   // Streamer Authorization & Admin popup state
+  // Stored in sessionStorage so closing the browser window/tab immediately clears credentials
   const [authorizedStreamer, setAuthorizedStreamer] = useState<{
     username: string;
     key: string;
     label?: string;
+    sessionId?: string;
   } | null>(() => {
     try {
-      const saved = localStorage.getItem('wkt_streamer_auth');
+      localStorage.removeItem('wkt_streamer_auth'); // clear any persistent across window closes
+      const saved = sessionStorage.getItem('wkt_streamer_auth');
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
     }
   });
+  const authorizedStreamerRef = useRef(authorizedStreamer);
+  useEffect(() => {
+    authorizedStreamerRef.current = authorizedStreamer;
+  }, [authorizedStreamer]);
+
+  const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
+
   const [adminModalOpen, setAdminModalOpen] = useState(false);
   const [adminLoginOpen, setAdminLoginOpen] = useState(false);
   const [adminSession, setAdminSession] = useState<{ username: string; token: string } | null>(() => {
@@ -166,23 +178,147 @@ export default function App() {
     }
   }, [authorizedStreamer]);
 
+  const handleStreamerLogout = useCallback((reason = 'manual') => {
+    const currentStreamer = authorizedStreamerRef.current;
+    setAuthorizedStreamer(null);
+    setTiktokDrawerOpen(false);
+    try {
+      sessionStorage.removeItem('wkt_streamer_auth');
+      localStorage.removeItem('wkt_streamer_auth');
+    } catch {}
+
+    if (currentStreamer?.username) {
+      const tabSessionId = getOrInitTabSessionId();
+      fetch('/api/auth/streamer-logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: currentStreamer.username,
+          sessionId: tabSessionId,
+        }),
+      }).catch(() => {});
+    }
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'streamer:identify',
+          streamerUsername: null,
+        })
+      );
+    }
+
+    if (reason === 'inactivity') {
+      setLogoutNotice('Logged out after 20 minutes of inactivity (no chat or user activity).');
+      setTimeout(() => setLogoutNotice(null), 8000);
+    }
+  }, []);
+
   const handleStreamerLoginSuccess = useCallback(
-    (auth: { username: string; key: string; label?: string }) => {
+    (auth: { username: string; key: string; label?: string; sessionId?: string }) => {
       setAuthorizedStreamer(auth);
+      setLogoutNotice(null);
+      lastActivityRef.current = Date.now();
       try {
-        localStorage.setItem('wkt_streamer_auth', JSON.stringify(auth));
+        sessionStorage.setItem('wkt_streamer_auth', JSON.stringify(auth));
       } catch {}
       setTiktokDrawerOpen(true);
+
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'streamer:identify',
+            streamerUsername: auth.username,
+            sessionId: getOrInitTabSessionId(),
+          })
+        );
+      }
     },
     []
   );
 
-  const handleStreamerLogout = useCallback(() => {
-    setAuthorizedStreamer(null);
-    try {
-      localStorage.removeItem('wkt_streamer_auth');
-    } catch {}
+  // Automatically log out when window or tab is closed
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const current = authorizedStreamerRef.current;
+      if (current?.username) {
+        const tabSessionId = getOrInitTabSessionId();
+        const payload = JSON.stringify({
+          username: current.username,
+          sessionId: tabSessionId,
+        });
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon('/api/auth/streamer-logout', payload);
+        } else {
+          fetch('/api/auth/streamer-logout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload,
+            keepalive: true,
+          }).catch(() => {});
+        }
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
   }, []);
+
+  // Track user activity across interactions (mousemove, mousedown, keydown, touchstart, scroll, click)
+  useEffect(() => {
+    const onUserInteraction = () => {
+      lastActivityRef.current = Date.now();
+    };
+
+    window.addEventListener('mousemove', onUserInteraction, { passive: true });
+    window.addEventListener('mousedown', onUserInteraction, { passive: true });
+    window.addEventListener('keydown', onUserInteraction, { passive: true });
+    window.addEventListener('touchstart', onUserInteraction, { passive: true });
+    window.addEventListener('scroll', onUserInteraction, { passive: true });
+    window.addEventListener('click', onUserInteraction, { passive: true });
+
+    return () => {
+      window.removeEventListener('mousemove', onUserInteraction);
+      window.removeEventListener('mousedown', onUserInteraction);
+      window.removeEventListener('keydown', onUserInteraction);
+      window.removeEventListener('touchstart', onUserInteraction);
+      window.removeEventListener('scroll', onUserInteraction);
+      window.removeEventListener('click', onUserInteraction);
+    };
+  }, []);
+
+  // 20-minute inactivity sweeper (combines user and chat activity) & heartbeat
+  useEffect(() => {
+    if (!authorizedStreamer) return;
+
+    const INACTIVITY_MS = 20 * 60 * 1000;
+
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - lastActivityRef.current;
+      if (elapsed >= INACTIVITY_MS) {
+        handleStreamerLogout('inactivity');
+      }
+    }, 5000);
+
+    const heartbeat = setInterval(() => {
+      const tabSessionId = getOrInitTabSessionId();
+      fetch('/api/auth/streamer-activity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: authorizedStreamer.username,
+          sessionId: tabSessionId,
+        }),
+      }).catch(() => {});
+    }, 45000);
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(heartbeat);
+    };
+  }, [authorizedStreamer, handleStreamerLogout]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string>(getOrInitSessionId());
@@ -231,6 +367,7 @@ export default function App() {
             sessionId: sessionIdRef.current,
             displayName: displayNameRef.current,
             mode: modeRef.current,
+            streamerUsername: authorizedStreamerRef.current?.username || null,
           })
         );
       };
@@ -254,6 +391,7 @@ export default function App() {
               prev ? { ...prev, roundEndCountdownSec: msg.seconds } : prev
             );
           } else if (msg.type === 'guess:result') {
+            lastActivityRef.current = Date.now();
             const outcome: GuessResult = msg.outcome;
             if (outcome.result === 'correct') {
               sfx.playWordFound(outcome.tierName, outcome.isTitleWord);
@@ -274,6 +412,7 @@ export default function App() {
               sfx.playMiss(false);
             }
           } else if (msg.type === 'game:word-found') {
+            lastActivityRef.current = Date.now();
             const outcome: GuessResult = msg.outcome;
             sfx.playWordFound(outcome.tierName, outcome.isTitleWord);
             if (outcome.cells?.length) {
@@ -286,11 +425,18 @@ export default function App() {
               outcome.points
             );
           } else if (msg.type === 'chat:event' && msg.item) {
+            lastActivityRef.current = Date.now();
             if (!msg.item.eventType || msg.item.eventType === 'chat') {
               setChatHistory((prev) => [...prev.slice(-39), msg.item]);
             }
+          } else if (msg.type === 'chat:history' && Array.isArray(msg.items)) {
+            setChatHistory(msg.items);
+            lastActivityRef.current = Date.now();
           } else if (msg.type === 'tiktok:status' && msg.status) {
             setTiktokStatus(msg.status);
+            lastActivityRef.current = Date.now();
+          } else if (msg.type === 'streamer:timeout') {
+            handleStreamerLogout('inactivity');
           } else if (msg.type === 'presence:update' && msg.presence) {
             setPresence(msg.presence);
           }
@@ -518,6 +664,44 @@ export default function App() {
 
   return (
     <>
+      {logoutNotice && (
+        <div
+          style={{
+            position: 'fixed',
+            top: '16px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 9999,
+            backgroundColor: '#ea580c',
+            color: '#ffffff',
+            padding: '8px 16px',
+            borderRadius: '10px',
+            boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+            fontSize: '12px',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <span>⚠️ {logoutNotice}</span>
+          <button
+            type="button"
+            onClick={() => setLogoutNotice(null)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#fff',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              marginLeft: '8px',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <div className="app-stage">
         {/* LEFT BOX: LIVE CHAT STREAM (Shown once an authorized user logs in, before and during connection) */}
         {authorizedStreamer && (

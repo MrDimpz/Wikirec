@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { Key, Lock, Eye, EyeOff, Radio, AlertCircle, CheckCircle2, X } from 'lucide-react';
+import { getOrInitTabSessionId } from '../utils/session';
 
 interface StreamerLoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (auth: { username: string; key: string; label?: string }) => void;
+  onSuccess: (auth: { username: string; key: string; label?: string; sessionId?: string }) => void;
   initialUsername?: string;
 }
 
@@ -68,10 +69,15 @@ export const StreamerLoginModal: React.FC<StreamerLoginModalProps> = ({
     setErrorMessage(null);
 
     try {
+      const tabSessionId = getOrInitTabSessionId();
       const res = await fetch('/api/auth/validate-streamer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: cleanUser, key: cleanKey }),
+        body: JSON.stringify({
+          username: cleanUser,
+          key: cleanKey,
+          sessionId: tabSessionId,
+        }),
       });
 
       const data = await res.json();
@@ -80,12 +86,15 @@ export const StreamerLoginModal: React.FC<StreamerLoginModalProps> = ({
           username: cleanUser,
           key: cleanKey,
           label: data.user?.label,
+          sessionId: data.sessionId || tabSessionId,
         });
         onClose();
       } else {
         setErrorMessage(
           data.message ||
-            'Invalid username or key. Please check your credentials or contact the administrator.'
+            (res.status === 409
+              ? `@${cleanUser} is already logged in on another device or window.`
+              : 'Invalid username or key. Please check your credentials or contact the administrator.')
         );
       }
     } catch (err: any) {
