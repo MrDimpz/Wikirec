@@ -29,7 +29,7 @@ class WebcastPushConnection extends BaseTikTokConnection {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // Ensure Vite HMR WebSocket is disabled in middleware mode as required by AI Studio runtime
 process.env.DISABLE_HMR = 'true';
@@ -1145,7 +1145,31 @@ async function startServer() {
         const meta = clients.get(ws);
         if (!meta) return;
 
-        if (msg.type === 'identify' || msg.type === 'streamer:identify') {
+        if (msg.type === 'streamer:identify') {
+          if (msg.streamerUsername !== undefined) {
+            meta.streamerUsername = msg.streamerUsername ? cleanStreamerUsername(msg.streamerUsername) : null;
+          }
+          if (meta.streamerUsername) {
+            const session = activeStreamers.get(meta.streamerUsername);
+            if (session) {
+              session.lastActivity = Date.now();
+              ws.send(
+                JSON.stringify({
+                  type: 'tiktok:status',
+                  status: session.status,
+                })
+              );
+              if (session.chatHistory.length > 0) {
+                for (const item of session.chatHistory) {
+                  ws.send(JSON.stringify({ type: 'chat:event', item }));
+                }
+              }
+            }
+          }
+          return;
+        }
+
+        if (msg.type === 'identify') {
           if (msg.sessionId) meta.sessionId = String(msg.sessionId).slice(0, 64);
           if (msg.displayName) meta.displayName = String(msg.displayName).trim().slice(0, 28) || 'Explorer';
           if (msg.mode && ['multiplayer', 'daily-solo', 'practice-solo', 'wikiword-4x4'].includes(msg.mode)) {
@@ -1234,7 +1258,7 @@ async function startServer() {
             })
           );
 
-          if (outcome.result !== 'too_short') {
+          if (meta.mode === 'multiplayer' && outcome.result !== 'too_short') {
             pushLiveChatItem({
               id: `web-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
               platform: 'web',

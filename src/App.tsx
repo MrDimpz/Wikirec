@@ -376,20 +376,30 @@ export default function App() {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'init') {
-            if (msg.state) setGameState(msg.state);
+            if (msg.state && (msg.state.mode === modeRef.current || (!gameState && modeRef.current === 'multiplayer'))) {
+              setGameState(msg.state);
+            }
             if (msg.tiktokStatus) setTiktokStatus(msg.tiktokStatus);
             if (Array.isArray(msg.chatHistory)) setChatHistory(msg.chatHistory);
             if (msg.presence) setPresence(msg.presence);
           } else if (msg.type === 'game:state') {
-            setGameState(msg.state);
-            if (msg.state?.isComplete && !prevCompleteRef.current) {
-              sfx.playRoundWin();
+            if (msg.state) {
+              // STRICT ISOLATION: Never apply a game state that belongs to another mode
+              if (msg.state.mode && msg.state.mode !== modeRef.current) {
+                return;
+              }
+              setGameState(msg.state);
+              if (msg.state?.isComplete && !prevCompleteRef.current) {
+                sfx.playRoundWin();
+              }
+              prevCompleteRef.current = !!msg.state?.isComplete;
             }
-            prevCompleteRef.current = !!msg.state?.isComplete;
           } else if (msg.type === 'game:countdown') {
-            setGameState((prev) =>
-              prev ? { ...prev, roundEndCountdownSec: msg.seconds } : prev
-            );
+            if (modeRef.current === 'multiplayer' || modeRef.current === 'wikiword-4x4') {
+              setGameState((prev) =>
+                prev ? { ...prev, roundEndCountdownSec: msg.seconds } : prev
+              );
+            }
           } else if (msg.type === 'guess:result') {
             lastActivityRef.current = Date.now();
             const outcome: GuessResult = msg.outcome;
@@ -644,7 +654,17 @@ export default function App() {
       ];
       const chosen =
         pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : 'planet';
-      submitWordGuess(chosen);
+      const item: LiveChatItem = {
+        id: `sim-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        platform: 'tiktok',
+        username: 'live_viewer',
+        displayName: 'Live Viewer',
+        comment: chosen.toUpperCase(),
+        guessResult: 'chat',
+        timestamp: Date.now(),
+        eventType: 'chat',
+      };
+      setChatHistory((prev) => [...prev.slice(-39), item]);
     } catch {}
   };
 
@@ -830,7 +850,10 @@ export default function App() {
             <span className="badge">G</span>
             <b id="grid-found">{gameState?.foundCount || 0}</b>
           </span>
-          <span className="count t" title="Title words revealed">
+          <span
+            className={`count t ${(gameState?.revealedTitleWordCount || 0) > 0 ? 'has-found' : ''}`}
+            title="Title words revealed"
+          >
             <span className="badge">T</span>
             <b id="title-found">{gameState?.revealedTitleWordCount || 0}</b>
             <span className="slash">/</span>
@@ -948,7 +971,7 @@ export default function App() {
             <div className="title-chips" id="title-chips">
               {allTitleRevealed && gameState?.articleTitle ? (
                 gameState.articleTitle.split(/\s+/).map((tok, idx) => (
-                  <span key={idx} className="title-chip">
+                  <span key={idx} className="title-chip revealed">
                     {tok.toUpperCase()}
                   </span>
                 ))
@@ -956,7 +979,7 @@ export default function App() {
                 displayedTitleChips.map((chip) => (
                   <span
                     key={chip.index}
-                    className={`title-chip ${chip.revealed ? '' : 'hidden-word'}`}
+                    className={`title-chip ${chip.revealed ? 'revealed' : 'hidden-word'}`}
                   >
                     {chip.revealed && chip.word ? chip.word.toUpperCase() : 'HIDDEN'}
                   </span>

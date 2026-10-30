@@ -158,6 +158,14 @@ a {
 .count.t .badge {
   background: var(--accent-orange);
 }
+.count.t.has-found b {
+  color: #22c55e !important;
+  text-shadow: 0 0 8px rgba(34, 197, 94, 0.45);
+}
+.count.t.has-found .badge {
+  background: #22c55e !important;
+  color: #0a1620 !important;
+}
 .count.c .badge {
   background: var(--accent-blue);
   color: #f8fafc;
@@ -301,21 +309,33 @@ a {
 .title-chip {
   padding: 1px 6px;
   border-radius: 4px;
-  color: var(--accent-orange);
+  color: #22c55e;
+  font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   display: inline-flex;
   align-items: center;
+  text-shadow: 0 0 10px rgba(34, 197, 94, 0.45);
+  transition: color 0.2s ease, text-shadow 0.2s ease;
+}
+
+.title-chip.revealed,
+.title-chip:not(.hidden-word) {
+  color: #22c55e !important;
+  font-weight: 800;
+  text-shadow: 0 0 10px rgba(34, 197, 94, 0.45);
 }
 
 .title-chip.hidden-word {
-  color: var(--accent-orange);
+  color: var(--accent-orange) !important;
   background: transparent;
   border: 1.5px solid var(--accent-orange);
   letter-spacing: 0.04em;
   font-size: 0.78rem;
   padding: 1px 6px;
   border-radius: 4px;
+  text-shadow: none !important;
+  font-weight: 700;
 }
 
 .title-tier-status {
@@ -745,8 +765,9 @@ a {
   align-items: center;
   justify-content: center;
   font-family: Fredoka, Inter, sans-serif;
-  font-weight: 700;
-  font-size: clamp(0.85rem, 2vh, 1.15rem);
+  font-weight: 800;
+  font-size: clamp(1.7rem, 4vh, 2.3rem);
+  line-height: 1;
   color: var(--text);
   text-transform: uppercase;
   position: relative;
@@ -1522,11 +1543,11 @@ a {
 }
 
 .tw-slot.title-found {
-  border-color: var(--accent-orange);
-  background: rgba(238, 122, 44, 0.12);
+  border-color: #22c55e;
+  background: rgba(34, 197, 94, 0.14);
 }
 .tw-slot.title-found .tw-slot-word {
-  color: var(--accent-orange);
+  color: #22c55e;
 }
 
 .tw-slot.common-found {
