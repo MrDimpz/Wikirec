@@ -1,0 +1,6 @@
+{
+  "name": "WiKirecTangled Live & Solo",
+  "description": "Real-time multiplayer and daily solo Wikipedia word search puzzle with live TikTok chat interactivity, Boggle-style grid swiping, and semantic target word tiers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
