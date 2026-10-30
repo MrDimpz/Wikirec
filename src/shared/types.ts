@@ -1,5 +1,12 @@
 export type GameMode = 'multiplayer' | 'daily-solo' | 'practice-solo' | 'wikiword-4x4';
 
+export interface AuthorizedUser {
+  username: string; // clean username without @
+  key: string;      // individual admin provided access key
+  label?: string;   // optional note or title (e.g. "Main Streamer")
+  createdAt?: number;
+}
+
 export type TierName = 'common' | 'rare' | 'ultra' | 'three' | 'title';
 
 export type TierPhase = 'common' | 'rare' | 'ultra' | 'complete';

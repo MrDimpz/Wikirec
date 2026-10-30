@@ -1,4 +1,4 @@
-import { Trie } from './wordlist';
+import { Trie } from './wordlist.ts';
 
 const LETTER_WEIGHTS: Record<string, number> = {
   a: 9, b: 2, c: 3, d: 4, e: 12, f: 2, g: 3, h: 3,

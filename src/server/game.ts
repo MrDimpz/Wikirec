@@ -1,4 +1,4 @@
-import {
+import type {
   FinderInfo,
   FoundWordEntry,
   GameMode,
@@ -13,15 +13,15 @@ import {
   TierPhase,
   TierStartCell,
   TitleChip,
-} from '../shared/types';
+} from '../shared/types.ts';
 import {
   fetchWikipediaRoundArticle,
   getFrequencyMap,
   getTrie,
   singularizeForTitleAlias,
-  WikiArticleSeed,
-} from './wordlist';
-import { buildGrid } from './grid';
+  type WikiArticleSeed,
+} from './wordlist.ts';
+import { buildGrid } from './grid.ts';
 
 const ZIPF_COMMON_THRESHOLD = 4.2;
 const ZIPF_ULTRA_THRESHOLD = 3.0;

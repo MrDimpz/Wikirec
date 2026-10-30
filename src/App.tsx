@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AuthorizedUser,
   GameMode,
   GuessResult,
   LiveChatItem,
@@ -9,6 +10,9 @@ import {
 } from './shared/types';
 import { BoggleGrid } from './components/BoggleGrid';
 import { TikTokLivePanel } from './components/TikTokLivePanel';
+import { AdminAuthModal } from './components/AdminAuthModal';
+import { AdminLoginModal } from './components/AdminLoginModal';
+import { StreamerLoginModal } from './components/StreamerLoginModal';
 import { sfx } from './utils/sfx';
 
 const STORAGE_NAME_KEY = 'wkt_display_name';
@@ -104,6 +108,81 @@ export default function App() {
   const [muted, setMuted] = useState(sfx.muted);
   const [tiktokDrawerOpen, setTiktokDrawerOpen] = useState(false);
   const [dismissedRoundId, setDismissedRoundId] = useState<string | null>(null);
+
+  // Streamer Authorization & Admin popup state
+  const [authorizedStreamer, setAuthorizedStreamer] = useState<{
+    username: string;
+    key: string;
+    label?: string;
+  } | null>(() => {
+    try {
+      const saved = localStorage.getItem('wkt_streamer_auth');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [adminModalOpen, setAdminModalOpen] = useState(false);
+  const [adminLoginOpen, setAdminLoginOpen] = useState(false);
+  const [adminSession, setAdminSession] = useState<{ username: string; token: string } | null>(() => {
+    try {
+      const stored = sessionStorage.getItem('wkt_admin_session');
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const handleOpenAdmin = useCallback(() => {
+    if (!adminSession) {
+      setAdminLoginOpen(true);
+    } else {
+      setAdminModalOpen(true);
+    }
+  }, [adminSession]);
+
+  const handleAdminLoginSuccess = useCallback((admin: { username: string; token: string }) => {
+    setAdminSession(admin);
+    try {
+      sessionStorage.setItem('wkt_admin_session', JSON.stringify(admin));
+    } catch {}
+    setAdminModalOpen(true);
+  }, []);
+
+  const handleAdminLogout = useCallback(() => {
+    setAdminSession(null);
+    try {
+      sessionStorage.removeItem('wkt_admin_session');
+    } catch {}
+  }, []);
+
+  const [streamerLoginOpen, setStreamerLoginOpen] = useState(false);
+
+  const handleOpenTikTokLive = useCallback(() => {
+    if (!authorizedStreamer) {
+      setStreamerLoginOpen(true);
+    } else {
+      setTiktokDrawerOpen(true);
+    }
+  }, [authorizedStreamer]);
+
+  const handleStreamerLoginSuccess = useCallback(
+    (auth: { username: string; key: string; label?: string }) => {
+      setAuthorizedStreamer(auth);
+      try {
+        localStorage.setItem('wkt_streamer_auth', JSON.stringify(auth));
+      } catch {}
+      setTiktokDrawerOpen(true);
+    },
+    []
+  );
+
+  const handleStreamerLogout = useCallback(() => {
+    setAuthorizedStreamer(null);
+    try {
+      localStorage.removeItem('wkt_streamer_auth');
+    } catch {}
+  }, []);
 
   const wsRef = useRef<WebSocket | null>(null);
   const sessionIdRef = useRef<string>(getOrInitSessionId());
@@ -440,97 +519,105 @@ export default function App() {
   return (
     <>
       <div className="app-stage">
-        {/* LEFT BOX: LIVE CHAT STREAM (50px gap to the left of the game) */}
-        <aside className="side-box left-chat-box" aria-label="Live Chat Stream">
-          <div className="side-box-header">
-            <div className="side-box-title">
-              <span className={`live-dot ${tiktokStatus.connected ? 'connected' : ''}`} />
-              <span>LIVE CHAT STREAM</span>
-            </div>
-            <button
-              type="button"
-              className="side-box-action"
-              onClick={() => setTiktokDrawerOpen(true)}
-            >
-              {tiktokStatus.connected && tiktokStatus.username
-                ? `@${tiktokStatus.username}`
-                : 'TikTok Setup'}
-            </button>
-          </div>
-
-          <div className="side-box-body chat-stream-list" ref={chatListRef}>
-            {chatOnlyItems.length === 0 ? (
-              <div className="side-box-empty">
-                <p>Waiting for live chat &amp; player guesses...</p>
-                <span>
-                  Connect a TikTok Live stream or type a word guess to see real-time chat activity here.
-                </span>
+        {/* LEFT BOX: LIVE CHAT STREAM (Shown once an authorized user logs in, before and during connection) */}
+        {authorizedStreamer && (
+          <aside className="side-box left-chat-box" aria-label="Live Chat Stream">
+            <div className="side-box-header">
+              <div className="side-box-title">
+                <span className={`live-dot ${tiktokStatus.connected ? 'connected' : ''}`} />
+                <span>LIVE CHAT STREAM</span>
               </div>
-            ) : (
-              chatOnlyItems.map((item) => {
-                const nameLabel = (item.displayName || item.username || 'Player').replace(/^@/, '');
-                const initial = nameLabel[0]?.toUpperCase() || '?';
-                return (
-                  <div
-                    key={item.id}
-                    className={`chat-stream-item ${
-                      item.guessResult === 'correct' ? 'is-correct' : ''
-                    }`}
-                  >
-                    <div className="csi-avatar">
-                      {item.profileImage ? (
-                        <img
-                          src={item.profileImage}
-                          alt={nameLabel}
-                          referrerPolicy="no-referrer"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).style.display = 'none';
-                          }}
-                        />
-                      ) : (
-                        initial
-                      )}
-                    </div>
-                    <div className="csi-content">
-                      <div className="csi-top">
-                        <span className="csi-name">{nameLabel}</span>
-                        {item.points && item.points > 0 ? (
-                          <span className="csi-badge correct">
-                            +{item.points.toLocaleString()}
-                          </span>
-                        ) : item.guessResult === 'already_found' ? (
-                          <span className="csi-badge dup">DUP</span>
-                        ) : item.guessResult === 'miss_in_article' ? (
-                          <span className="csi-badge wiki">WIKI</span>
+              <button
+                type="button"
+                className="side-box-action"
+                onClick={handleOpenTikTokLive}
+              >
+                {tiktokStatus.connected && tiktokStatus.username
+                  ? `@${tiktokStatus.username}`
+                  : 'Connect Live'}
+              </button>
+            </div>
+
+            <div className="side-box-body chat-stream-list" ref={chatListRef}>
+              {chatOnlyItems.length === 0 ? (
+                <div className="side-box-empty">
+                  <p>
+                    {tiktokStatus.connected
+                      ? 'Waiting for live chat & player guesses...'
+                      : 'Streamer ready · Connect Live to start'}
+                  </p>
+                  <span>
+                    {tiktokStatus.connected
+                      ? 'Live chat messages and word guesses from viewers will appear in real-time.'
+                      : `Logged in as @${authorizedStreamer.username}. Open the TikTok Live Hub to connect your live stream.`}
+                  </span>
+                </div>
+              ) : (
+                chatOnlyItems.map((item) => {
+                  const nameLabel = (item.displayName || item.username || 'Player').replace(/^@/, '');
+                  const initial = nameLabel[0]?.toUpperCase() || '?';
+                  return (
+                    <div
+                      key={item.id}
+                      className={`chat-stream-item ${
+                        item.guessResult === 'correct' ? 'is-correct' : ''
+                      }`}
+                    >
+                      <div className="csi-avatar">
+                        {item.profileImage ? (
+                          <img
+                            src={item.profileImage}
+                            alt={nameLabel}
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
                         ) : (
-                          <span className="csi-badge miss">CHAT</span>
+                          initial
                         )}
                       </div>
-                      <div className="csi-comment">{item.comment}</div>
+                      <div className="csi-content">
+                        <div className="csi-top">
+                          <span className="csi-name">{nameLabel}</span>
+                          {item.points && item.points > 0 ? (
+                            <span className="csi-badge correct">
+                              +{item.points.toLocaleString()}
+                            </span>
+                          ) : item.guessResult === 'already_found' ? (
+                            <span className="csi-badge dup">DUP</span>
+                          ) : item.guessResult === 'miss_in_article' ? (
+                            <span className="csi-badge wiki">WIKI</span>
+                          ) : (
+                            <span className="csi-badge miss">CHAT</span>
+                          )}
+                        </div>
+                        <div className="csi-comment">{item.comment}</div>
+                      </div>
                     </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
+                  );
+                })
+              )}
+            </div>
 
-          <div className="side-box-footer">
-            <button
-              type="button"
-              className="side-footer-btn"
-              onClick={handleQuickSimChat}
-            >
-              + Sim Guess
-            </button>
-            <button
-              type="button"
-              className="side-footer-btn primary"
-              onClick={() => setTiktokDrawerOpen(true)}
-            >
-              TikTok Live Hub
-            </button>
-          </div>
-        </aside>
+            <div className="side-box-footer">
+              <button
+                type="button"
+                className="side-footer-btn"
+                onClick={handleQuickSimChat}
+              >
+                + Sim Guess
+              </button>
+              <button
+                type="button"
+                className="side-footer-btn primary"
+                onClick={handleOpenTikTokLive}
+              >
+                TikTok Live Hub
+              </button>
+            </div>
+          </aside>
+        )}
 
         {/* CENTER COLUMN: MAIN WIKIRECTANGLED GAME */}
         <div className="game-center-col">
@@ -600,11 +687,19 @@ export default function App() {
         {/* TikTok Live Chat & Streamer Relay Button */}
         <button
           type="button"
-          onClick={() => setTiktokDrawerOpen(true)}
-          className={`tiktok-pill-btn ${tiktokStatus.connected ? 'live' : ''}`}
-          title="Open TikTok Live Interactivity Hub"
+          onClick={handleOpenTikTokLive}
+          className={`tiktok-pill-btn ${tiktokStatus.connected ? 'live' : ''} ${authorizedStreamer ? 'authorized' : ''}`}
+          title={
+            authorizedStreamer
+              ? `Logged in as @${authorizedStreamer.username} · Open TikTok Live Hub`
+              : 'Log in with registered @username and key to open TikTok Live'
+          }
         >
-          <span>TikTok Live</span>
+          <span>
+            {authorizedStreamer
+              ? `@${authorizedStreamer.username}`
+              : 'TikTok Live'}
+          </span>
           {tiktokStatus.guessesFromChat > 0 && (
             <span>({tiktokStatus.guessesFromChat})</span>
           )}
@@ -984,14 +1079,6 @@ export default function App() {
         {' · '}
         <button
           type="button"
-          className={`link-btn ${mode === 'wikiword-4x4' ? 'active-mode' : ''}`}
-          onClick={() => switchMode('wikiword-4x4')}
-        >
-          WikiWord →
-        </button>
-        {' · '}
-        <button
-          type="button"
           className={`link-btn ${mode === 'daily-solo' ? 'active-mode' : ''}`}
           onClick={() => switchMode('daily-solo')}
         >
@@ -1017,12 +1104,12 @@ export default function App() {
           Daily Solo
         </button>{' '}
         &middot;{' '}
-        <button type="button" onClick={() => switchMode('wikiword-4x4')}>
-          WikiWord 4×4
-        </button>{' '}
-        &middot;{' '}
-        <button type="button" onClick={() => setTiktokDrawerOpen(true)}>
-          TikTok Live Relay
+        <button
+          type="button"
+          onClick={handleOpenAdmin}
+          title="Open Streamer Access Administration"
+        >
+          Admin
         </button>{' '}
         &middot; <span>&copy; 2026 Word Tycoon</span>
       </footer>
@@ -1319,6 +1406,30 @@ export default function App() {
             username,
           }));
         }}
+        authorizedStreamer={authorizedStreamer}
+        onLogoutStreamer={handleStreamerLogout}
+      />
+
+      {/* STREAMER LOGIN MODAL */}
+      <StreamerLoginModal
+        isOpen={streamerLoginOpen}
+        onClose={() => setStreamerLoginOpen(false)}
+        onSuccess={handleStreamerLoginSuccess}
+      />
+
+      {/* ADMIN LOGIN MODAL */}
+      <AdminLoginModal
+        isOpen={adminLoginOpen}
+        onClose={() => setAdminLoginOpen(false)}
+        onSuccess={handleAdminLoginSuccess}
+      />
+
+      {/* ADMIN AUTHORIZATION MODAL */}
+      <AdminAuthModal
+        isOpen={adminModalOpen}
+        onClose={() => setAdminModalOpen(false)}
+        currentAdminUser={adminSession?.username || 'Admin'}
+        onLogoutAdmin={handleAdminLogout}
       />
     </>
   );

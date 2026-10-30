@@ -7,13 +7,14 @@ import { Server as SocketIOServer } from 'socket.io';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createServer as createViteServer } from 'vite';
 import * as TikTokConnector from 'tiktok-live-connector';
-import { createNewGameInstance, WiKirecGame } from './src/server/game';
-import {
+import { createNewGameInstance, WiKirecGame } from './src/server/game.ts';
+import type {
+  AuthorizedUser,
   FinderInfo,
   GameMode,
   LiveChatItem,
   TikTokConnectionStatus,
-} from './src/shared/types';
+} from './src/shared/types.ts';
 
 // Support both WebcastPushConnection (v1) and TikTokLiveConnection (v2.1.1-beta1) with safe default options
 const BaseTikTokConnection: any =
@@ -218,6 +219,39 @@ async function startServer() {
     lastError: null,
   };
   let currentRoomId: string | null = null;
+
+  // Registered & Authorized Streamers list with individual admin-provided keys
+  let authorizedUsers: AuthorizedUser[] = [
+    {
+      username: 'mindtipgames',
+      key: 'LIVE-KEY-2026',
+      label: 'Official MindTipGames Live',
+      createdAt: Date.now(),
+    },
+  ];
+
+  // Admin login credentials (default: User: Admin, Password: MissingWiki)
+  let adminCredentials = {
+    username: 'Admin',
+    password: 'MissingWiki',
+  };
+
+  function cleanStreamerUsername(raw: string): string {
+    return String(raw || '').trim().replace(/^@/, '').toLowerCase();
+  }
+
+  function isStreamerAuthorized(username: string, key?: string): boolean {
+    const clean = cleanStreamerUsername(username);
+    if (!clean) return false;
+    const found = authorizedUsers.find(
+      (u) => cleanStreamerUsername(u.username) === clean
+    );
+    if (!found) return false;
+    if (key !== undefined) {
+      return String(found.key).trim() === String(key).trim();
+    }
+    return true;
+  }
 
   function getTodaySeed(): string {
     const now = new Date();
@@ -597,15 +631,33 @@ async function startServer() {
       });
     }
 
-    // 1. connect-tiktok (receives username: string)
-    socket.on('connect-tiktok', (username: string) => {
+    // 1. connect-tiktok (receives username: string or { username: string, key?: string })
+    socket.on('connect-tiktok', (payload: any) => {
       try {
-        const raw = String(username || '').trim();
-        const cleanUsername = raw.startsWith('@') ? raw.substring(1) : raw;
+        const raw =
+          typeof payload === 'object' && payload !== null
+            ? payload.username
+            : payload;
+        const key =
+          typeof payload === 'object' && payload !== null
+            ? payload.key
+            : undefined;
+
+        const cleanUsername = cleanStreamerUsername(raw);
         if (!cleanUsername) {
           socket.emit('tiktok-error', 'Please enter a valid TikTok username');
           return;
         }
+
+        // Verify if user is registered in authorized streamers
+        if (!isStreamerAuthorized(cleanUsername, key)) {
+          socket.emit(
+            'tiktok-error',
+            `@${cleanUsername} is not in the list of authorized streamers, or the access key is invalid.`
+          );
+          return;
+        }
+
         startTikTokConnection(cleanUsername, socket);
       } catch (err: any) {
         socket.emit('tiktok-error', err?.message || String(err));
@@ -677,6 +729,146 @@ async function startServer() {
       ok: true,
       tiktok: tiktokStatus,
       presence: getViewerPresence(),
+    });
+  });
+
+  // Admin: Get authorized streamers
+  app.get('/api/admin/authorized-users', (_req, res) => {
+    res.json({
+      ok: true,
+      users: authorizedUsers,
+    });
+  });
+
+  // Admin: Update authorized streamers list
+  app.post('/api/admin/authorized-users', (req, res) => {
+    try {
+      const incoming = req.body?.users;
+      if (!Array.isArray(incoming)) {
+        return res.status(400).json({ ok: false, error: 'Expected an array of authorized users' });
+      }
+
+      const validList: AuthorizedUser[] = incoming
+        .map((u: any) => ({
+          username: cleanStreamerUsername(u?.username),
+          key: String(u?.key || '').trim(),
+          label: String(u?.label || '').trim() || undefined,
+          createdAt: Number(u?.createdAt) || Date.now(),
+        }))
+        .filter((u) => u.username.length > 0 && u.key.length > 0);
+
+      // Deduplicate by username (case-insensitive)
+      const deduped: AuthorizedUser[] = [];
+      const seen = new Set<string>();
+      for (const u of validList) {
+        if (!seen.has(u.username)) {
+          seen.add(u.username);
+          deduped.push(u);
+        }
+      }
+
+      authorizedUsers = deduped;
+      res.json({ ok: true, users: authorizedUsers });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  // Streamer Auth: Validate registered @username and admin-provided key
+  app.post('/api/auth/validate-streamer', (req, res) => {
+    const rawUsername = req.body?.username;
+    const rawKey = req.body?.key;
+    const username = cleanStreamerUsername(rawUsername);
+    const key = String(rawKey || '').trim();
+
+    if (!username || !key) {
+      return res.status(400).json({
+        ok: false,
+        valid: false,
+        message: 'Both TikTok username and admin-provided key are required',
+      });
+    }
+
+    const found = authorizedUsers.find(
+      (u) => cleanStreamerUsername(u.username) === username && String(u.key).trim() === key
+    );
+
+    if (found) {
+      res.json({
+        ok: true,
+        valid: true,
+        user: {
+          username: found.username,
+          label: found.label,
+        },
+      });
+    } else {
+      res.status(401).json({
+        ok: false,
+        valid: false,
+        message: 'Invalid username or access key. Contact administrator for authorization.',
+      });
+    }
+  });
+
+  // Admin Login: Authenticate admin User & Password
+  app.post('/api/admin/login', (req, res) => {
+    const rawUser = String(req.body?.username || '').trim();
+    const rawPass = String(req.body?.password || '').trim();
+
+    if (
+      rawUser.toLowerCase() === adminCredentials.username.toLowerCase() &&
+      rawPass === adminCredentials.password
+    ) {
+      res.json({
+        ok: true,
+        username: adminCredentials.username,
+        token: `adm_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      });
+    } else {
+      res.status(401).json({
+        ok: false,
+        message: 'Invalid Admin username or password',
+      });
+    }
+  });
+
+  // Admin Change Credentials: Change Admin Username & Password
+  app.post('/api/admin/change-credentials', (req, res) => {
+    const currentPass = String(req.body?.currentPassword || '').trim();
+    const newUsername = String(req.body?.newUsername || '').trim();
+    const newPassword = String(req.body?.newPassword || '').trim();
+
+    if (currentPass !== adminCredentials.password) {
+      return res.status(401).json({
+        ok: false,
+        message: 'Current admin password is incorrect',
+      });
+    }
+
+    if (!newUsername || newUsername.length < 2) {
+      return res.status(400).json({
+        ok: false,
+        message: 'New username must be at least 2 characters',
+      });
+    }
+
+    if (!newPassword || newPassword.length < 4) {
+      return res.status(400).json({
+        ok: false,
+        message: 'New password must be at least 4 characters',
+      });
+    }
+
+    adminCredentials = {
+      username: newUsername,
+      password: newPassword,
+    };
+
+    res.json({
+      ok: true,
+      username: adminCredentials.username,
+      message: 'Admin credentials updated successfully',
     });
   });
 

@@ -35,6 +35,8 @@ interface TikTokLivePanelProps {
   isOpen: boolean;
   onClose: () => void;
   onConnectionStateChange?: (connected: boolean, username: string | null) => void;
+  authorizedStreamer?: { username: string; key: string; label?: string } | null;
+  onLogoutStreamer?: () => void;
 }
 
 const SAMPLE_TIKTOK_VIEWERS = [
@@ -82,8 +84,10 @@ export const TikTokLivePanel: React.FC<TikTokLivePanelProps> = ({
   isOpen,
   onClose,
   onConnectionStateChange,
+  authorizedStreamer,
+  onLogoutStreamer,
 }) => {
-  const [username, setUsername] = useState('mindtipgames');
+  const [username, setUsername] = useState(() => authorizedStreamer?.username || '');
   const [connState, setConnState] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>(
     status.connected ? 'connected' : 'disconnected'
   );
@@ -93,6 +97,12 @@ export const TikTokLivePanel: React.FC<TikTokLivePanelProps> = ({
       : null
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (authorizedStreamer?.username) {
+      setUsername(authorizedStreamer.username);
+    }
+  }, [authorizedStreamer?.username]);
 
   // Simulate / Debug controls state
   const [simViewerId, setSimViewerId] = useState(SAMPLE_TIKTOK_VIEWERS[0].uniqueId);
@@ -199,7 +209,10 @@ export const TikTokLivePanel: React.FC<TikTokLivePanelProps> = ({
     if (!username.trim() || !socketRef.current) return;
     setConnState('connecting');
     setErrorMessage(null);
-    socketRef.current.emit('connect-tiktok', username.trim());
+    socketRef.current.emit('connect-tiktok', {
+      username: username.trim(),
+      key: authorizedStreamer?.key,
+    });
   };
 
   const handleDisconnect = () => {
@@ -429,9 +442,27 @@ export const TikTokLivePanel: React.FC<TikTokLivePanelProps> = ({
 
           {/* 01. Connect Live TikTok Stream (@username) via Socket.IO */}
           <div className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-200">
-              01. Connect Live TikTok Stream (@username)
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-slate-200">
+                01. Connect Live TikTok Stream (@username)
+              </h3>
+              {authorizedStreamer && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                    ✓ Authorized @{authorizedStreamer.username}
+                  </span>
+                  {onLogoutStreamer && (
+                    <button
+                      type="button"
+                      onClick={onLogoutStreamer}
+                      className="text-[11px] text-slate-400 hover:text-rose-400 underline transition"
+                    >
+                      Log out
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
             <form onSubmit={handleConnect} className="flex gap-2">
               <input
                 type="text"

@@ -229,6 +229,10 @@ a {
   background: var(--panel-2);
   border-color: var(--accent-magenta);
 }
+.tiktok-pill-btn.authorized {
+  border-color: rgba(245, 158, 11, 0.6);
+  color: #fbbf24;
+}
 .tiktok-pill-btn.live {
   border-color: var(--accent-green);
   color: var(--accent-green);
