@@ -531,29 +531,10 @@ async function startServer() {
     session.status.guessesFromChat += 1;
 
     if (bestOutcome.result === 'correct') {
-      broadcastAll({
+      broadcastToMode('multiplayer', {
         type: 'game:word-found',
         outcome: bestOutcome,
       });
-    }
-
-    // Apply guess to any active solo/4x4 games for this streamer's client
-    for (const [ws, meta] of clients.entries()) {
-      if (meta.streamerUsername === cleanUsername && ws.readyState === WebSocket.OPEN) {
-        if (meta.mode === 'daily-solo' || meta.mode === 'practice-solo') {
-          const key = `${meta.sessionId}:${meta.mode}`;
-          const soloGame = soloGames.get(key);
-          if (soloGame) {
-            soloGame.guess(singleWord, finder);
-            ws.send(
-              JSON.stringify({
-                type: 'game:state',
-                state: soloGame.publicState(),
-              })
-            );
-          }
-        }
-      }
     }
 
     const item: LiveChatItem = {

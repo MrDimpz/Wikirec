@@ -413,17 +413,19 @@ export default function App() {
             }
           } else if (msg.type === 'game:word-found') {
             lastActivityRef.current = Date.now();
-            const outcome: GuessResult = msg.outcome;
-            sfx.playWordFound(outcome.tierName, outcome.isTitleWord);
-            if (outcome.cells?.length) {
-              setFlashedCells(outcome.cells);
-              setTimeout(() => setFlashedCells([]), 900);
+            if (modeRef.current === 'multiplayer' || modeRef.current === 'wikiword-4x4') {
+              const outcome: GuessResult = msg.outcome;
+              sfx.playWordFound(outcome.tierName, outcome.isTitleWord);
+              if (outcome.cells?.length) {
+                setFlashedCells(outcome.cells);
+                setTimeout(() => setFlashedCells([]), 900);
+              }
+              triggerWordAnnounce(
+                outcome.finder.displayName,
+                outcome.word,
+                outcome.points
+              );
             }
-            triggerWordAnnounce(
-              outcome.finder.displayName,
-              outcome.word,
-              outcome.points
-            );
           } else if (msg.type === 'chat:event' && msg.item) {
             lastActivityRef.current = Date.now();
             if (!msg.item.eventType || msg.item.eventType === 'chat') {
