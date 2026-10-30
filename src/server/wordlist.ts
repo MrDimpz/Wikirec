@@ -151,10 +151,82 @@ export interface WikiArticleSeed {
   keywords: string[];
 }
 
-export const CURATED_WIKI_ARTICLES: WikiArticleSeed[] = [
+export interface SeasonalWikiArticleSeed extends WikiArticleSeed {
+  seasonTag?: 'halloween' | 'christmas' | 'easter' | 'autumn' | 'winter' | 'spring' | 'summer' | 'general';
+}
+
+export const CURATED_WIKI_ARTICLES: SeasonalWikiArticleSeed[] = [
+  // Halloween & Late October Curated Articles
+  {
+    title: 'Carved Jack Lantern Pumpkin',
+    category: 'Halloween & Folklore',
+    seasonTag: 'halloween',
+    extract: 'A jack-o-lantern is a carved lantern, most commonly made from a pumpkin, turnip, or rutabaga, associated with the holiday of Halloween. Originating in Irish and Scottish folklore surrounding the legend of Stingy Jack and wandering spectral lights, carved pumpkins glow on doorsteps every October.',
+    url: 'https://en.wikipedia.org/wiki/Jack-o%27-lantern',
+    titleWords: ['carved', 'jack', 'lantern', 'pumpkin'],
+    keywords: ['halloween', 'autumn', 'candle', 'flame', 'night', 'ghost', 'spirit', 'carve', 'seed', 'orange', 'gourd', 'harvest', 'october', 'light', 'dark', 'mask', 'treat', 'folklore', 'myth', 'glow'],
+  },
+  {
+    title: 'Ancient Celtic Samhain Festival',
+    category: 'Halloween & History',
+    seasonTag: 'halloween',
+    extract: 'Samhain is a Gaelic seasonal festival observed from sunset on October 31 to November 1, marking the end of the harvest season and the beginning of winter. In Celtic tradition, the boundary between this world and the Otherworld thinned at Samhain, inspiring bonfires, guising, and modern Halloween customs.',
+    url: 'https://en.wikipedia.org/wiki/Samhain',
+    titleWords: ['ancient', 'celtic', 'samhain', 'festival'],
+    keywords: ['harvest', 'winter', 'autumn', 'fire', 'bonfire', 'feast', 'spirit', 'ghost', 'mask', 'costume', 'apple', 'nut', 'night', 'october', 'custom', 'folk', 'hearth', 'hill', 'flame', 'dark'],
+  },
+  {
+    title: 'Gothic Vampire Folklore Legend',
+    category: 'Folklore & Literature',
+    seasonTag: 'halloween',
+    extract: 'A vampire is a mythical creature in folklore that subsists by feeding on the vital essence of the living. Popularized in Gothic fiction by John Polidori and Bram Stoker classic novel Dracula, vampire legends blend Eastern European superstition with Victorian nocturnal mystery.',
+    url: 'https://en.wikipedia.org/wiki/Vampire',
+    titleWords: ['gothic', 'vampire', 'folklore', 'legend'],
+    keywords: ['night', 'castle', 'bat', 'shadow', 'fang', 'cape', 'blood', 'moon', 'grave', 'crypt', 'coffins', 'garlic', 'silver', 'mirror', 'myth', 'novel', 'dark', 'count', 'mist', 'sleep'],
+  },
+  {
+    title: 'Sleepy Hollow Headless Horseman',
+    category: 'Autumn Folklore & Tales',
+    seasonTag: 'halloween',
+    extract: 'The Legend of Sleepy Hollow by Washington Irving tells the story of schoolmaster Ichabod Crane and his midnight encounter with the Headless Horseman, a ghostly Hessian trooper said to ride through the autumn woods in search of his missing head.',
+    url: 'https://en.wikipedia.org/wiki/The_Legend_of_Sleepy_Hollow',
+    titleWords: ['sleepy', 'hollow', 'headless', 'horseman'],
+    keywords: ['horse', 'rider', 'bridge', 'woods', 'forest', 'night', 'pumpkin', 'ghost', 'tale', 'legend', 'autumn', 'valley', 'church', 'moon', 'shadow', 'lantern', 'chase', 'fear', 'folklore', 'story'],
+  },
+  // Christmas & Winter Curated Articles
+  {
+    title: 'Evergreen Christmas Tree Tradition',
+    category: 'Christmas & Winter',
+    seasonTag: 'christmas',
+    extract: 'A Christmas tree is a decorated tree, usually an evergreen conifer such as a spruce, pine, or fir, associated with the celebration of Christmas. Originating in Renaissance Germany, trees are illuminated with fairy lights, glass baubles, tinsel, and a shining star or angel at the crown.',
+    url: 'https://en.wikipedia.org/wiki/Christmas_tree',
+    titleWords: ['evergreen', 'christmas', 'tree', 'tradition'],
+    keywords: ['pine', 'spruce', 'fir', 'branch', 'needle', 'star', 'angel', 'light', 'tinsel', 'gift', 'snow', 'winter', 'carol', 'wreath', 'holly', 'candle', 'green', 'gold', 'red', 'feast'],
+  },
+  {
+    title: 'Arctic Reindeer Winter Sleigh',
+    category: 'Winter & Holiday Lore',
+    seasonTag: 'christmas',
+    extract: 'In festive folklore, Santa Claus rides a magical flying sleigh pulled by reindeer across the Christmas Eve sky to deliver gifts. Real Arctic reindeer are remarkably adapted to polar winters with hollow insulating fur, wide hooves for snow, and ultraviolet vision.',
+    url: 'https://en.wikipedia.org/wiki/Santa_Claus%27s_reindeer',
+    titleWords: ['arctic', 'reindeer', 'winter', 'sleigh'],
+    keywords: ['snow', 'ice', 'north', 'pole', 'bell', 'roof', 'chimney', 'gift', 'toy', 'sack', 'antler', 'herd', 'tundra', 'frost', 'cold', 'night', 'star', 'flight', 'magic', 'carol'],
+  },
+  // Easter & Spring Curated Articles
+  {
+    title: 'Decorated Painted Easter Eggs',
+    category: 'Easter & Springtime',
+    seasonTag: 'easter',
+    extract: 'Easter eggs are decorated eggs given to celebrate Easter and the arrival of springtime. Across cultures, traditions range from intricately wax-resisted Ukrainian pysanky and Imperial Faberge jeweled eggs to chocolate eggs hidden in garden hunts by the Easter Bunny.',
+    url: 'https://en.wikipedia.org/wiki/Easter_egg',
+    titleWords: ['decorated', 'painted', 'easter', 'eggs'],
+    keywords: ['spring', 'basket', 'rabbit', 'bunny', 'hunt', 'garden', 'flower', 'lily', 'tulip', 'candy', 'shell', 'paint', 'dye', 'color', 'gold', 'ribbon', 'chick', 'nest', 'grass', 'feast'],
+  },
+  // General Encyclopedic Articles
   {
     title: 'Solar Eclipse Phenomenon',
     category: 'Astronomy & Space',
+    seasonTag: 'general',
     extract: 'A solar eclipse occurs when the Moon passes between Earth and the Sun, obscuring the view of the Sun from a small part of the Earth, either totally or partially. During totality, the solar corona shimmers in the darkened sky while diamond ring effects appear along the lunar limb.',
     url: 'https://en.wikipedia.org/wiki/Solar_eclipse',
     titleWords: ['solar', 'eclipse', 'phenomenon'],
@@ -163,6 +235,7 @@ export const CURATED_WIKI_ARTICLES: WikiArticleSeed[] = [
   {
     title: 'Great Barrier Coral Reef',
     category: 'Marine Ecology',
+    seasonTag: 'general',
     extract: 'The Great Barrier Reef is the world largest coral reef system composed of over two thousand individual reefs and nine hundred islands stretching across the Coral Sea off the coast of Queensland, Australia. Built by billions of tiny organisms known as coral polyps, it supports extraordinary marine biodiversity.',
     url: 'https://en.wikipedia.org/wiki/Great_Barrier_Reef',
     titleWords: ['great', 'barrier', 'coral', 'reef'],
@@ -171,78 +244,34 @@ export const CURATED_WIKI_ARTICLES: WikiArticleSeed[] = [
   {
     title: 'Ancient Library of Alexandria',
     category: 'Ancient History',
+    seasonTag: 'general',
     extract: 'The Great Library of Alexandria in Egypt was one of the largest and most significant libraries of the ancient world. Functioning as a major center of Hellenistic scholarship under the Ptolemaic dynasty, it housed hundreds of thousands of papyrus scrolls covering mathematics, astronomy, literature, and medicine.',
     url: 'https://en.wikipedia.org/wiki/Library_of_Alexandria',
     titleWords: ['ancient', 'library', 'alexandria'],
     keywords: ['book', 'scroll', 'egypt', 'history', 'scholar', 'read', 'write', 'text', 'king', 'port', 'fire', 'stone', 'hall', 'study', 'wise', 'math', 'star', 'poet', 'greek', 'harbor'],
   },
   {
-    title: 'Deep Ocean Hydrothermal Vent',
-    category: 'Earth Sciences',
-    extract: 'A hydrothermal vent is a fissure on the seafloor from which geothermally heated water issues. Commonly found near volcanically active places, areas where tectonic plates are moving apart at mid-ocean ridges, these dark chimneys host chemosynthetic bacteria and giant tube worms without sunlight.',
-    url: 'https://en.wikipedia.org/wiki/Hydrothermal_vent',
-    titleWords: ['deep', 'ocean', 'thermal', 'vent'],
-    keywords: ['water', 'heat', 'steam', 'rock', 'magma', 'lava', 'plate', 'ridge', 'floor', 'dark', 'life', 'worm', 'crab', 'plume', 'mineral', 'iron', 'sulfur', 'core', 'crust', 'sea'],
-  },
-  {
     title: 'Northern Aurora Borealis Lights',
     category: 'Atmospheric Physics',
+    seasonTag: 'general',
     extract: 'An aurora, often called the northern lights or aurora borealis, is a natural light display in Earth sky predominantly seen in high-latitude regions around the Arctic and Antarctic. Auroras display dynamic curtains, rays, spirals, and flickers caused by solar wind disturbances in the magnetosphere.',
     url: 'https://en.wikipedia.org/wiki/Aurora',
     titleWords: ['northern', 'aurora', 'lights'],
     keywords: ['sky', 'night', 'glow', 'green', 'solar', 'wind', 'pole', 'arctic', 'ice', 'snow', 'cold', 'star', 'field', 'storm', 'ray', 'band', 'wave', 'atom', 'gas', 'ion'],
   },
   {
-    title: 'Mechanical Pendulum Clockwork',
-    category: 'History of Technology',
-    extract: 'A pendulum clock is a clock that uses a swinging weight as its timekeeping element. Invented by Christiaan Huygens in 1656 and inspired by Galileo Galilei investigations, pendulum escapement mechanisms reduced daily timekeeping error from fifteen minutes to bare seconds.',
-    url: 'https://en.wikipedia.org/wiki/Pendulum_clock',
-    titleWords: ['pendulum', 'clock', 'weight'],
-    keywords: ['time', 'hour', 'minute', 'second', 'swing', 'gear', 'wheel', 'spring', 'bell', 'chime', 'hand', 'dial', 'face', 'tick', 'iron', 'brass', 'tower', 'watch', 'beat', 'rate'],
-  },
-  {
     title: 'Monarch Butterfly Migration',
     category: 'Entomology & Nature',
+    seasonTag: 'autumn',
     extract: 'Monarch butterfly migration is the phenomenon in which millions of monarch butterflies travel thousands of miles across North America from southern Canada to overwintering mountain forests in central Mexico, navigating by a sun compass and circadian clock.',
     url: 'https://en.wikipedia.org/wiki/Monarch_butterfly_migration',
     titleWords: ['monarch', 'butterfly', 'migration'],
     keywords: ['wing', 'flight', 'insect', 'flower', 'plant', 'leaf', 'tree', 'forest', 'south', 'north', 'wind', 'sun', 'warm', 'cold', 'orange', 'black', 'gold', 'nest', 'egg', 'path'],
   },
   {
-    title: 'Renaissance Printing Press Revolution',
-    category: 'Media & History',
-    extract: 'The movable-type printing press developed by Johannes Gutenberg in Mainz around 1440 transformed European society by enabling the mass production of printed books, accelerating the Renaissance, the Scientific Revolution, and vernacular literacy across continents.',
-    url: 'https://en.wikipedia.org/wiki/Printing_press',
-    titleWords: ['printing', 'press', 'revolution'],
-    keywords: ['book', 'page', 'paper', 'ink', 'type', 'metal', 'lead', 'word', 'read', 'write', 'text', 'letter', 'frame', 'screw', 'wood', 'shop', 'trade', 'city', 'idea', 'news'],
-  },
-  {
-    title: 'Volcanic Caldera Eruption',
-    category: 'Volcanology',
-    extract: 'A caldera is a large cauldron-like hollow that forms shortly after the emptying of a magma chamber in a volcanic eruption. When huge volumes of magma are erupted over a short time, structural support for the rock above the chamber is lost, and the ground surface collapses inward.',
-    url: 'https://en.wikipedia.org/wiki/Caldera',
-    titleWords: ['volcanic', 'caldera', 'eruption'],
-    keywords: ['magma', 'lava', 'ash', 'rock', 'crater', 'fire', 'smoke', 'plume', 'cone', 'peak', 'lake', 'steam', 'vent', 'earth', 'crust', 'fault', 'blast', 'flow', 'stone', 'heat'],
-  },
-  {
-    title: 'Transcontinental Steam Railway',
-    category: 'Transport Engineering',
-    extract: 'A transcontinental railroad is a contiguous network of railroad trackage that crosses a continental land mass with terminals at different oceans or continental borders, uniting distant regions through iron bridges, mountain tunnels, and steam locomotives.',
-    url: 'https://en.wikipedia.org/wiki/Transcontinental_railroad',
-    titleWords: ['steam', 'railway', 'network'],
-    keywords: ['train', 'track', 'rail', 'iron', 'steel', 'coal', 'fire', 'wheel', 'engine', 'bridge', 'tunnel', 'pass', 'west', 'east', 'coast', 'town', 'city', 'road', 'line', 'car'],
-  },
-  {
-    title: 'Symphony Orchestra Concert Hall',
-    category: 'Music & Acoustics',
-    extract: 'A symphony orchestra is a large instrumental ensemble typical of classical music, combining string, woodwind, brass, and percussion sections led by a conductor inside an acoustically tuned concert hall.',
-    url: 'https://en.wikipedia.org/wiki/Orchestra',
-    titleWords: ['symphony', 'orchestra', 'concert'],
-    keywords: ['music', 'sound', 'stage', 'hall', 'string', 'horn', 'drum', 'flute', 'harp', 'note', 'tone', 'song', 'tune', 'chord', 'beat', 'tempo', 'play', 'band', 'choir', 'voice'],
-  },
-  {
     title: 'Voyager Interstellar Space Probe',
     category: 'Space Exploration',
+    seasonTag: 'general',
     extract: 'The Voyager program launched twin robotic probes, Voyager 1 and Voyager 2, to study the outer planets Jupiter, Saturn, Uranus, and Neptune before crossing the heliopause into interstellar space carrying the Golden Record.',
     url: 'https://en.wikipedia.org/wiki/Voyager_program',
     titleWords: ['voyager', 'space', 'probe'],
@@ -318,8 +347,353 @@ export function singularizeForTitleAlias(word: string): string | null {
   return null;
 }
 
-// Fetch a real Wikipedia article or select a curated/seeded one
-let recentArticleTitles = new Set<string>();
+// Compute Easter Sunday (Meeus/Jones/Butcher algorithm) so Easter-season detection works for any year
+function getEasterDate(year: number): { month: number; day: number } {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return { month, day };
+}
+
+// Return a rich, diverse list of Wikipedia article slugs tailored to the current calendar season/holiday
+function getDateSeasonalWikiSlugs(now = new Date()): {
+  label: string;
+  seasonTag: SeasonalWikiArticleSeed['seasonTag'];
+  slugs: string[];
+} {
+  const month = now.getMonth() + 1; // 1..12
+  const day = now.getDate();
+  const year = now.getFullYear();
+
+  // Check proximity to Easter (within 14 days before to 5 days after Easter Sunday)
+  const easter = getEasterDate(year);
+  const easterMs = new Date(year, easter.month - 1, easter.day).getTime();
+  const nowMs = new Date(year, month - 1, day).getTime();
+  const daysFromEaster = Math.round((nowMs - easterMs) / (1000 * 60 * 60 * 24));
+
+  if (daysFromEaster >= -14 && daysFromEaster <= 5) {
+    return {
+      label: 'Easter & Springtime',
+      seasonTag: 'easter',
+      slugs: [
+        'Easter_egg',
+        'Easter_Bunny',
+        'Hot_cross_bun',
+        'Fabergé_egg',
+        'Paschal_candle',
+        'Egg_rolling',
+        'Spring_equinox',
+        'Tulip_mania',
+        'Cherry_blossom',
+        'European_hare',
+        'Daffodil',
+        'Chocolate',
+        'Vernal_pool',
+        'Butterfly_gardening',
+      ],
+    };
+  }
+
+  // Halloween & Spooky Season (Oct 15 – Nov 2)
+  if ((month === 10 && day >= 15) || (month === 11 && day <= 2)) {
+    return {
+      label: 'Halloween & Autumn Folklore',
+      seasonTag: 'halloween',
+      slugs: [
+        'Jack-o%27-lantern',
+        'Trick-or-treating',
+        'Samhain',
+        'Haunted_house',
+        'Day_of_the_Dead',
+        'Headless_Horseman',
+        'Salem_witch_trials',
+        'Gothic_fiction',
+        'Vampire_folklore',
+        'Werewolf',
+        'Frankenstein',
+        'Bram_Stoker',
+        'Black_cat',
+        'Ghost_ship',
+        'Will-o%27-the-wisp',
+        'Gargoyle',
+        'Common_raven',
+        'Barn_owl',
+        'Autumn_leaf_color',
+        'Apple_bobbing',
+      ],
+    };
+  }
+
+  // Bonfire Night / Mid-November / Thanksgiving (Nov 3 – Nov 30)
+  if (month === 11) {
+    return {
+      label: 'Autumn & Harvest Season',
+      seasonTag: 'autumn',
+      slugs: [
+        'Gunpowder_Plot',
+        'Guy_Fawkes_Night',
+        'Fireworks',
+        'Thanksgiving',
+        'Mayflower',
+        'Cornucopia',
+        'Wild_turkey',
+        'Pumpkin_pie',
+        'Cranberry',
+        'Harvest_festival',
+        'Autumn_leaf_color',
+        'Bird_migration',
+      ],
+    };
+  }
+
+  // Christmas, Winter Solstice & New Year (Dec 1 – Jan 5)
+  if (month === 12 || (month === 1 && day <= 5)) {
+    return {
+      label: 'Christmas & Winter Season',
+      seasonTag: 'christmas',
+      slugs: [
+        'Christmas_tree',
+        'Santa_Claus',
+        'Reindeer',
+        'Winter_solstice',
+        'Snowflake',
+        'The_Nutcracker',
+        'Gingerbread_house',
+        'Yule_log',
+        'Mistletoe',
+        'Christmas_carol',
+        'Silent_Night',
+        'Candy_cane',
+        'Advent_calendar',
+        'Christmas_market',
+        'Sleigh',
+        'Aurora',
+        'New_Year%27s_Eve',
+        'Auld_Lang_Syne',
+      ],
+    };
+  }
+
+  // Valentine's Day (Feb 1 – Feb 16)
+  if (month === 2 && day <= 16) {
+    return {
+      label: "Valentine's & Romance",
+      seasonTag: 'winter',
+      slugs: [
+        'Valentine%27s_Day',
+        'Cupid',
+        'Garden_rose',
+        'Chocolate_truffle',
+        'Love_letter',
+        'Courtly_love',
+        'Romeo_and_Juliet',
+        'Mute_swan',
+      ],
+    };
+  }
+
+  // St. Patrick's Day & Early Spring (Mar 10 – Mar 25)
+  if (month === 3 && day >= 10 && day <= 25) {
+    return {
+      label: "St. Patrick's & Spring Equinox",
+      seasonTag: 'spring',
+      slugs: [
+        'Saint_Patrick%27s_Day',
+        'Shamrock',
+        'Leprechaun',
+        'Celtic_mythology',
+        'Spring_equinox',
+        'Rainbow',
+        'Cherry_blossom',
+        'Giant%27s_Causeway',
+      ],
+    };
+  }
+
+  // General Seasonal Fallbacks by Month
+  if (month >= 3 && month <= 5) {
+    return {
+      label: 'Spring & Nature',
+      seasonTag: 'spring',
+      slugs: [
+        'Cherry_blossom',
+        'Honey_bee',
+        'Botanical_garden',
+        'Rainforest',
+        'Pollination',
+        'Hummingbird',
+        'Greenhouse',
+        'Rainbow',
+      ],
+    };
+  }
+  if (month >= 6 && month <= 8) {
+    return {
+      label: 'Summer & Solstice',
+      seasonTag: 'summer',
+      slugs: [
+        'Summer_solstice',
+        'Stonehenge',
+        'Coral_reef',
+        'Bioluminescence',
+        'Firefly',
+        'Perseids',
+        'Lighthouse',
+        'Sandcastle',
+      ],
+    };
+  }
+  if (month >= 9 && month <= 10) {
+    return {
+      label: 'Autumn & Harvest',
+      seasonTag: 'autumn',
+      slugs: [
+        'Autumn_leaf_color',
+        'Harvest_festival',
+        'Apple_orchard',
+        'Monarch_butterfly_migration',
+        'Equinox',
+        'Deciduous_forest',
+        'Jack-o%27-lantern',
+        'Samhain',
+      ],
+    };
+  }
+  return {
+    label: 'Winter & Polar Wonders',
+    seasonTag: 'winter',
+    slugs: [
+      'Snowflake',
+      'Aurora',
+      'Glacier',
+      'Polar_bear',
+      'Emperor_penguin',
+      'Iceberg',
+      'Avalanche',
+      'Winter_solstice',
+    ],
+  };
+}
+
+// Track recently played article titles and round counter so articles never repeat
+const recentArticleTitles: string[] = [];
+const MAX_RECENT_HISTORY = 40;
+let roundSelectionCounter = 0;
+
+function markArticleUsed(title: string) {
+  const norm = title.trim().toLowerCase();
+  if (!recentArticleTitles.includes(norm)) {
+    recentArticleTitles.push(norm);
+    if (recentArticleTitles.length > MAX_RECENT_HISTORY) {
+      recentArticleTitles.shift();
+    }
+  }
+}
+
+function isArticleRecentlyUsed(title: string): boolean {
+  return recentArticleTitles.includes(title.trim().toLowerCase());
+}
+
+function buildArticleSeedFromWikiSummary(
+  data: any,
+  defaultCategory: string
+): WikiArticleSeed | null {
+  const rawTitle = String(data?.title || '')
+    .replace(/\s*\([^)]*\)\s*/g, '')
+    .replace(/_/g, ' ')
+    .trim();
+  const extract = String(data?.extract || '').trim();
+  if (!rawTitle || extract.length < 80) return null;
+
+  const words = (rawTitle.toLowerCase().match(/[a-z]+/g) || []).filter(
+    (w) => w.length >= 3 && w.length <= 9 && !STOPLIST.has(w)
+  );
+  const uniqueTitleWords = Array.from(new Set(words)).slice(0, 4);
+  if (uniqueTitleWords.length < 1) return null;
+
+  const extractTokens = (extract.toLowerCase().match(/[a-z]{4,10}/g) || []).filter(
+    (w) => !STOPLIST.has(w)
+  );
+
+  return {
+    title: rawTitle,
+    category: data?.description
+      ? `${defaultCategory} · ${String(data.description).slice(0, 36)}`
+      : defaultCategory,
+    extract,
+    url:
+      data?.content_urls?.desktop?.page ||
+      `https://en.wikipedia.org/wiki/${encodeURIComponent(rawTitle)}`,
+    titleWords: uniqueTitleWords,
+    keywords: Array.from(new Set(extractTokens)).slice(0, 30),
+  };
+}
+
+// Cache Wikipedia "On This Day" articles per MM-DD so we don't re-fetch on every round
+let cachedOnThisDayKey = '';
+let cachedOnThisDayArticles: WikiArticleSeed[] = [];
+
+async function getOnThisDayCandidates(now = new Date()): Promise<WikiArticleSeed[]> {
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const key = `${mm}-${dd}`;
+  if (cachedOnThisDayKey === key && cachedOnThisDayArticles.length > 0) {
+    return cachedOnThisDayArticles;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2200);
+    const res = await fetch(
+      `https://en.wikipedia.org/api/rest_v1/feed/onthisday/all/${mm}/${dd}`,
+      {
+        headers: { 'User-Agent': 'WiKirecTangled/2.0 (WordTycoon Live Puzzle)' },
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timer);
+    if (res.ok) {
+      const data = await res.json();
+      const events = [
+        ...(Array.isArray(data?.holidays) ? data.holidays : []),
+        ...(Array.isArray(data?.selected) ? data.selected : []),
+      ];
+      const candidates: WikiArticleSeed[] = [];
+      const seen = new Set<string>();
+      for (const ev of events) {
+        const pages = Array.isArray(ev?.pages) ? ev.pages : [];
+        for (const p of pages) {
+          const built = buildArticleSeedFromWikiSummary(p, `On This Day (${mm}/${dd})`);
+          if (
+            built &&
+            built.titleWords.length >= 2 &&
+            !seen.has(built.title.toLowerCase())
+          ) {
+            seen.add(built.title.toLowerCase());
+            candidates.push(built);
+          }
+        }
+      }
+      if (candidates.length > 0) {
+        cachedOnThisDayKey = key;
+        cachedOnThisDayArticles = candidates;
+        return candidates;
+      }
+    }
+  } catch {}
+  return [];
+}
 
 export async function fetchWikipediaRoundArticle(options?: {
   seedKey?: string;
@@ -330,9 +704,9 @@ export async function fetchWikipediaRoundArticle(options?: {
 
   if (options?.compactSingleWord) {
     const compactCandidates = [
+      'pumpkin', 'lantern', 'phantom', 'vampire', 'harvest', 'reindeer', 'snowfall',
       'planet', 'galaxy', 'eclipse', 'volcano', 'glacier', 'compass', 'library',
-      'crystal', 'orchard', 'lantern', 'monarch', 'thunder', 'harbor', 'canyon',
-      'pendulum', 'symphony', 'voyager', 'aurora', 'pyramid', 'citadel',
+      'crystal', 'orchard', 'monarch', 'thunder', 'harbor', 'canyon',
     ];
     const chosen = options.seedKey
       ? compactCandidates[Math.abs(hashCode(options.seedKey)) % compactCandidates.length]
@@ -349,14 +723,82 @@ export async function fetchWikipediaRoundArticle(options?: {
   }
 
   // Deterministic Daily Solo puzzle
-  if (options?.seedKey) {
+  if (options?.seedKey && options.seedKey.startsWith('daily-')) {
     const idx = Math.abs(hashCode(options.seedKey)) % CURATED_WIKI_ARTICLES.length;
     const base = CURATED_WIKI_ARTICLES[idx];
     registerArticleWordsInDictionary(base, trie, freq);
     return base;
   }
 
-  // Try fetching a live random Wikipedia summary first (with fast 2200ms timeout)
+  roundSelectionCounter += 1;
+  const now = new Date();
+  const seasonalInfo = getDateSeasonalWikiSlugs(now);
+
+  // Rotate intelligently so date/holiday articles are prioritized without being repetitive:
+  // - Round 1, 2, 4, 5, 7... -> Seasonal / Holiday (e.g. Halloween, Christmas, Easter) or "On This Day" Wikipedia article
+  // - Every 3rd round -> General / Random Wikipedia article for variety
+  const preferDateRelated = roundSelectionCounter % 3 !== 0;
+
+  if (preferDateRelated) {
+    // 1. Try an unused Seasonal / Holiday Wikipedia article (e.g., Halloween, Christmas, Easter)
+    const unusedSlugs = seasonalInfo.slugs.filter((slug) => {
+      const decoded = decodeURIComponent(slug).replace(/_/g, ' ');
+      return !isArticleRecentlyUsed(decoded);
+    });
+
+    if (unusedSlugs.length > 0 && roundSelectionCounter % 2 === 1) {
+      const chosenSlug = unusedSlugs[Math.floor(Math.random() * unusedSlugs.length)];
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2200);
+        const res = await fetch(
+          `https://en.wikipedia.org/api/rest_v1/page/summary/${chosenSlug}`,
+          {
+            headers: { 'User-Agent': 'WiKirecTangled/2.0 (WordTycoon Live Puzzle)' },
+            signal: controller.signal,
+          }
+        );
+        clearTimeout(timer);
+        if (res.ok) {
+          const data = await res.json();
+          const article = buildArticleSeedFromWikiSummary(data, seasonalInfo.label);
+          if (article && !isArticleRecentlyUsed(article.title)) {
+            markArticleUsed(article.title);
+            registerArticleWordsInDictionary(article, trie, freq);
+            return article;
+          }
+        }
+      } catch {}
+    }
+
+    // 2. Try an unused Wikipedia "On This Day" holiday/event article for today's date
+    const onThisDayPool = await getOnThisDayCandidates(now);
+    const unusedOnThisDay = onThisDayPool.filter((a) => !isArticleRecentlyUsed(a.title));
+    if (unusedOnThisDay.length > 0) {
+      const pickedOtd =
+        unusedOnThisDay[Math.floor(Math.random() * unusedOnThisDay.length)];
+      markArticleUsed(pickedOtd.title);
+      registerArticleWordsInDictionary(pickedOtd, trie, freq);
+      return pickedOtd;
+    }
+
+    // 3. Fallback to an unused curated seasonal article matching the current season
+    const matchingCuratedSeasonal = CURATED_WIKI_ARTICLES.filter(
+      (a) =>
+        a.seasonTag === seasonalInfo.seasonTag && !isArticleRecentlyUsed(a.title)
+    );
+    if (matchingCuratedSeasonal.length > 0) {
+      const picked =
+        matchingCuratedSeasonal[
+          Math.floor(Math.random() * matchingCuratedSeasonal.length)
+        ];
+      markArticleUsed(picked.title);
+      registerArticleWordsInDictionary(picked, trie, freq);
+      return picked;
+    }
+  }
+
+  // Try fetching a live random Wikipedia summary (with fast 2200ms timeout)
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 2200);
@@ -367,30 +809,16 @@ export async function fetchWikipediaRoundArticle(options?: {
     clearTimeout(timer);
     if (res.ok) {
       const data = await res.json();
-      const rawTitle = String(data.title || '').replace(/\s*\([^)]*\)\s*/g, '').trim();
-      const extract = String(data.extract || '').trim();
-      const words = (rawTitle.toLowerCase().match(/[a-z]+/g) || []).filter(
-        (w) => w.length >= 4 && w.length <= 9 && !STOPLIST.has(w)
+      const article = buildArticleSeedFromWikiSummary(
+        data,
+        'Wikipedia Featured Article'
       );
-      const uniqueTitleWords = Array.from(new Set(words)).slice(0, 4);
       if (
-        uniqueTitleWords.length >= 2 &&
-        extract.length >= 100 &&
-        !recentArticleTitles.has(rawTitle)
+        article &&
+        article.titleWords.length >= 2 &&
+        !isArticleRecentlyUsed(article.title)
       ) {
-        recentArticleTitles.add(rawTitle);
-        if (recentArticleTitles.size > 25) recentArticleTitles.clear();
-        const extractTokens = (extract.toLowerCase().match(/[a-z]{4,10}/g) || []).filter(
-          (w) => !STOPLIST.has(w)
-        );
-        const article: WikiArticleSeed = {
-          title: rawTitle,
-          category: data.description ? String(data.description).slice(0, 48) : 'Wikipedia Featured Article',
-          extract,
-          url: data.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${encodeURIComponent(rawTitle)}`,
-          titleWords: uniqueTitleWords,
-          keywords: Array.from(new Set(extractTokens)).slice(0, 30),
-        };
+        markArticleUsed(article.title);
         registerArticleWordsInDictionary(article, trie, freq);
         return article;
       }
@@ -399,13 +827,21 @@ export async function fetchWikipediaRoundArticle(options?: {
     // Fallback cleanly to curated encyclopedic articles
   }
 
-  const available = CURATED_WIKI_ARTICLES.filter((a) => !recentArticleTitles.has(a.title));
-  const pool = available.length > 0 ? available : CURATED_WIKI_ARTICLES;
+  // Final non-repeating curated fallback (prioritizing current season first, then general)
+  const seasonalUnused = CURATED_WIKI_ARTICLES.filter(
+    (a) => a.seasonTag === seasonalInfo.seasonTag && !isArticleRecentlyUsed(a.title)
+  );
+  const generalUnused = CURATED_WIKI_ARTICLES.filter(
+    (a) => !isArticleRecentlyUsed(a.title)
+  );
+  const pool =
+    seasonalUnused.length > 0
+      ? seasonalUnused
+      : generalUnused.length > 0
+      ? generalUnused
+      : CURATED_WIKI_ARTICLES;
   const picked = pool[Math.floor(Math.random() * pool.length)];
-  recentArticleTitles.add(picked.title);
-  if (recentArticleTitles.size >= CURATED_WIKI_ARTICLES.length) {
-    recentArticleTitles.clear();
-  }
+  markArticleUsed(picked.title);
   registerArticleWordsInDictionary(picked, trie, freq);
   return picked;
 }

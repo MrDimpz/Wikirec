@@ -111,6 +111,7 @@ export default function App() {
   const displayNameRef = useRef<string>(displayName);
   const prevCompleteRef = useRef<boolean>(false);
   const announceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chatListRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -195,19 +196,20 @@ export default function App() {
             }
           } else if (msg.type === 'game:word-found') {
             const outcome: GuessResult = msg.outcome;
+            sfx.playWordFound(outcome.tierName, outcome.isTitleWord);
             if (outcome.cells?.length) {
               setFlashedCells(outcome.cells);
               setTimeout(() => setFlashedCells([]), 900);
             }
             triggerWordAnnounce(
-              outcome.finder.platform === 'tiktok'
-                ? `@${outcome.finder.displayName}`
-                : outcome.finder.displayName,
+              outcome.finder.displayName,
               outcome.word,
               outcome.points
             );
           } else if (msg.type === 'chat:event' && msg.item) {
-            setChatHistory((prev) => [...prev.slice(-39), msg.item]);
+            if (!msg.item.eventType || msg.item.eventType === 'chat') {
+              setChatHistory((prev) => [...prev.slice(-39), msg.item]);
+            }
           } else if (msg.type === 'tiktok:status' && msg.status) {
             setTiktokStatus(msg.status);
           } else if (msg.type === 'presence:update' && msg.presence) {
@@ -245,8 +247,15 @@ export default function App() {
   }, []);
 
   const submitWordGuess = useCallback((wordRaw: string) => {
-    const clean = wordRaw.trim().toLowerCase().replace(/[^a-z]/g, '');
-    if (clean.length < 3) return;
+    const strippedPunctuation = String(wordRaw || '')
+      .replace(/['’`]/g, '')
+      .replace(/[^a-zA-Z0-9\s]/g, '')
+      .trim();
+    const parts = strippedPunctuation.split(/\s+/).filter(Boolean);
+    setGuessInput('');
+    if (parts.length !== 1) return;
+    const clean = parts[0].toLowerCase();
+    if (!/^[a-z]{3,15}$/.test(clean)) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({
@@ -255,7 +264,6 @@ export default function App() {
         })
       );
     }
-    setGuessInput('');
   }, []);
 
   const handleComposerSubmit = (e: React.FormEvent) => {
@@ -388,23 +396,155 @@ export default function App() {
     };
   }, [lastTag, latestFoundWord, firstRevealedTarget, swipePreview, guessInput, displayName]);
 
+  const searchWordGroups = useMemo(() => {
+    const all = gameState?.searchWords || [];
+    return {
+      title: all.filter((w) => w.tier === 'title'),
+      common: all.filter((w) => w.tier === 'common'),
+      rare: all.filter((w) => w.tier === 'rare'),
+      ultra: all.filter((w) => w.tier === 'ultra'),
+    };
+  }, [gameState?.searchWords]);
+
+  const handleQuickSimChat = async () => {
+    try {
+      const res = await fetch('/api/tiktok/sample-words');
+      const words = await res.json();
+      const pool: string[] = [
+        ...(words.commonWords || []),
+        ...(words.rareWords || []),
+        ...(words.titleWords || []),
+      ];
+      const chosen =
+        pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : 'planet';
+      submitWordGuess(chosen);
+    } catch {}
+  };
+
+  const chatOnlyItems = useMemo(
+    () => chatHistory.filter((item) => !item.eventType || item.eventType === 'chat'),
+    [chatHistory]
+  );
+
+  useEffect(() => {
+    const el = chatListRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [chatOnlyItems]);
+
   const isSolo = mode === 'daily-solo' || mode === 'practice-solo';
   const showVictoryModal =
     gameState?.isComplete && dismissedRoundId !== gameState.roundId;
 
   return (
     <>
-      {/* TOPBAR — Exact wikirectangled.com structure */}
-      <header className="topbar">
-        <a
-          href="/"
-          onClick={(e) => {
-            e.preventDefault();
-            switchMode('multiplayer');
-          }}
-          className="logo-text"
-          id="logo"
-        >
+      <div className="app-stage">
+        {/* LEFT BOX: LIVE CHAT STREAM (50px gap to the left of the game) */}
+        <aside className="side-box left-chat-box" aria-label="Live Chat Stream">
+          <div className="side-box-header">
+            <div className="side-box-title">
+              <span className={`live-dot ${tiktokStatus.connected ? 'connected' : ''}`} />
+              <span>LIVE CHAT STREAM</span>
+            </div>
+            <button
+              type="button"
+              className="side-box-action"
+              onClick={() => setTiktokDrawerOpen(true)}
+            >
+              {tiktokStatus.connected && tiktokStatus.username
+                ? `@${tiktokStatus.username}`
+                : 'TikTok Setup'}
+            </button>
+          </div>
+
+          <div className="side-box-body chat-stream-list" ref={chatListRef}>
+            {chatOnlyItems.length === 0 ? (
+              <div className="side-box-empty">
+                <p>Waiting for live chat &amp; player guesses...</p>
+                <span>
+                  Connect a TikTok Live stream or type a word guess to see real-time chat activity here.
+                </span>
+              </div>
+            ) : (
+              chatOnlyItems.map((item) => {
+                const nameLabel = (item.displayName || item.username || 'Player').replace(/^@/, '');
+                const initial = nameLabel[0]?.toUpperCase() || '?';
+                return (
+                  <div
+                    key={item.id}
+                    className={`chat-stream-item ${
+                      item.guessResult === 'correct' ? 'is-correct' : ''
+                    }`}
+                  >
+                    <div className="csi-avatar">
+                      {item.profileImage ? (
+                        <img
+                          src={item.profileImage}
+                          alt={nameLabel}
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        initial
+                      )}
+                    </div>
+                    <div className="csi-content">
+                      <div className="csi-top">
+                        <span className="csi-name">{nameLabel}</span>
+                        {item.points && item.points > 0 ? (
+                          <span className="csi-badge correct">
+                            +{item.points.toLocaleString()}
+                          </span>
+                        ) : item.guessResult === 'already_found' ? (
+                          <span className="csi-badge dup">DUP</span>
+                        ) : item.guessResult === 'miss_in_article' ? (
+                          <span className="csi-badge wiki">WIKI</span>
+                        ) : (
+                          <span className="csi-badge miss">CHAT</span>
+                        )}
+                      </div>
+                      <div className="csi-comment">{item.comment}</div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="side-box-footer">
+            <button
+              type="button"
+              className="side-footer-btn"
+              onClick={handleQuickSimChat}
+            >
+              + Sim Guess
+            </button>
+            <button
+              type="button"
+              className="side-footer-btn primary"
+              onClick={() => setTiktokDrawerOpen(true)}
+            >
+              TikTok Live Hub
+            </button>
+          </div>
+        </aside>
+
+        {/* CENTER COLUMN: MAIN WIKIRECTANGLED GAME */}
+        <div className="game-center-col">
+          {/* TOPBAR — Exact wikirectangled.com structure */}
+          <header className="topbar">
+            <a
+              href="/"
+              onClick={(e) => {
+                e.preventDefault();
+                switchMode('multiplayer');
+              }}
+              className="logo-text"
+              id="logo"
+            >
           <span>WiKi</span>
           <span className="accent">rec</span>
           <span className="green">Tangled</span>
@@ -569,18 +709,27 @@ export default function App() {
           <div className="players-row" id="players-row">
             {(['first', 'second', 'third'] as const).map((rankClass, i) => {
               const player = topThreePlayers[i];
+              const cleanPlayerName = player
+                ? (player.displayName || 'Player').replace(/^@/, '')
+                : 'Open';
               return (
                 <div key={rankClass} className={`player-card ${rankClass}`}>
                   <div className="pfp">
-                    {player
-                      ? (player.displayName || '?')[0].toUpperCase()
-                      : i + 1}
+                    {player ? (
+                      player.profileImage ? (
+                        <img
+                          src={player.profileImage}
+                          alt={cleanPlayerName}
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        cleanPlayerName[0]?.toUpperCase() || '?'
+                      )
+                    ) : (
+                      i + 1
+                    )}
                   </div>
-                  <div className="pname">
-                    {player
-                      ? `${player.platform === 'tiktok' ? '@' : ''}${player.displayName}`
-                      : 'Open'}
-                  </div>
+                  <div className="pname">{cleanPlayerName}</div>
                   <div className="pscore">
                     {player ? player.score.toLocaleString() : '0'}
                   </div>
@@ -600,6 +749,9 @@ export default function App() {
                 t.rank,
                 gameState?.totalRankedWords || 50000
               );
+              const finderName = t.finder
+                ? (t.finder.displayName || 'Player').replace(/^@/, '')
+                : '';
 
               return (
                 <div
@@ -631,12 +783,17 @@ export default function App() {
                     {t.finder && !isPlaceholder && (
                       <div className="tfinder">
                         <div className="tpfp">
-                          {(t.finder.displayName || '?')[0].toUpperCase()}
+                          {t.finder.profileImage ? (
+                            <img
+                              src={t.finder.profileImage}
+                              alt={finderName}
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            finderName[0]?.toUpperCase() || '?'
+                          )}
                         </div>
-                        <div className="tname">
-                          {t.finder.platform === 'tiktok' ? '@' : ''}
-                          {t.finder.displayName}
-                        </div>
+                        <div className="tname">{finderName}</div>
                       </div>
                     )}
                   </div>
@@ -663,20 +820,19 @@ export default function App() {
                   <img
                     src={lastGuessEntry.profileImage}
                     alt={lastGuessEntry.displayName}
+                    referrerPolicy="no-referrer"
                     className="fw-fallback"
                   />
                 ) : (
                   <div className="fw-fallback">
-                    {(lastGuessEntry.displayName || '?')[0].toUpperCase()}
+                    {(lastGuessEntry.displayName || '?').replace(/^@/, '')[0]?.toUpperCase() || '?'}
                   </div>
                 )}
               </span>
               <span className="fw-word">{lastGuessEntry.word}</span>
               <span className="fw-finder-wrap">
                 <span className="fw-finder">
-                  {lastGuessEntry.platform === 'tiktok'
-                    ? `@${lastGuessEntry.displayName}`
-                    : lastGuessEntry.displayName}
+                  {(lastGuessEntry.displayName || 'You').replace(/^@/, '')}
                 </span>
               </span>
               <span className="fw-pts">{lastGuessEntry.badge}</span>
@@ -851,6 +1007,182 @@ export default function App() {
         </button>
       </div>
 
+      {/* LEGAL FOOTER */}
+      <footer className="wt-legal-footer">
+        <button type="button" onClick={() => switchMode('multiplayer')}>
+          Multiplayer
+        </button>{' '}
+        &middot;{' '}
+        <button type="button" onClick={() => switchMode('daily-solo')}>
+          Daily Solo
+        </button>{' '}
+        &middot;{' '}
+        <button type="button" onClick={() => switchMode('wikiword-4x4')}>
+          WikiWord 4×4
+        </button>{' '}
+        &middot;{' '}
+        <button type="button" onClick={() => setTiktokDrawerOpen(true)}>
+          TikTok Live Relay
+        </button>{' '}
+        &middot; <span>&copy; 2026 Word Tycoon</span>
+      </footer>
+        </div>
+
+        {/* RIGHT BOX: WORDS BEING LOOKED FOR (50px gap to the right of the game) */}
+        <aside className="side-box right-words-box" aria-label="Words Being Looked For">
+          <div className="side-box-header">
+            <div className="side-box-title">
+              <span>WORDS BEING LOOKED FOR</span>
+            </div>
+            <span className="side-box-counter">
+              {(gameState?.revealedTitleWordCount || 0) +
+                (gameState?.foundCommonCount || 0) +
+                (gameState?.foundRareCount || 0) +
+                (gameState?.foundUltraCount || 0)}
+              /
+              {(gameState?.titleWordCount || 0) +
+                (gameState?.commonWordTarget || 0) +
+                (gameState?.rareWordTarget || 0) +
+                (gameState?.ultraWordTarget || 0)}
+            </span>
+          </div>
+
+          <div className="side-box-body target-words-list">
+            {/* Title Words Group */}
+            <div className="tw-group">
+              <div className="tw-group-header tier-title">
+                <span className="tw-tier-label">
+                  <span className="badge-dot t">T</span> TITLE WORDS
+                </span>
+                <span className="tw-tier-count">
+                  {gameState?.revealedTitleWordCount || 0}/{gameState?.titleWordCount || 0}
+                </span>
+              </div>
+              <div className="tw-chips-grid">
+                {searchWordGroups.title.map((slot) => (
+                  <div
+                    key={slot.id}
+                    className={`tw-slot ${slot.revealed ? 'found title-found' : 'unfound'}`}
+                    onMouseEnter={() => {
+                      if (slot.revealed && slot.cells?.length) setFlashedCells(slot.cells);
+                    }}
+                    onMouseLeave={() => setFlashedCells([])}
+                  >
+                    <span className="tw-slot-word">
+                      {slot.revealed && slot.word
+                        ? slot.word
+                        : `${slot.startLetter}${'•'.repeat(Math.max(1, slot.length - 1))}`}
+                    </span>
+                    <span className="tw-slot-meta">
+                      {slot.revealed ? slot.finderName || 'Found' : `${slot.length}L`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Common Words Group */}
+            <div className="tw-group">
+              <div className="tw-group-header tier-common">
+                <span className="tw-tier-label">
+                  <span className="badge-dot c">C</span> COMMON WORDS
+                </span>
+                <span className="tw-tier-count">
+                  {gameState?.foundCommonCount || 0}/{gameState?.commonWordTarget || 0}
+                </span>
+              </div>
+              <div className="tw-chips-grid">
+                {searchWordGroups.common.map((slot) => (
+                  <div
+                    key={slot.id}
+                    className={`tw-slot ${slot.revealed ? 'found common-found' : 'unfound'}`}
+                    onMouseEnter={() => {
+                      if (slot.revealed && slot.cells?.length) setFlashedCells(slot.cells);
+                    }}
+                    onMouseLeave={() => setFlashedCells([])}
+                  >
+                    <span className="tw-slot-word">
+                      {slot.revealed && slot.word
+                        ? slot.word
+                        : `${slot.startLetter}${'•'.repeat(Math.max(1, slot.length - 1))}`}
+                    </span>
+                    <span className="tw-slot-meta">
+                      {slot.revealed ? slot.finderName || 'Found' : `${slot.length}L`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Rare Words Group */}
+            <div className="tw-group">
+              <div className="tw-group-header tier-rare">
+                <span className="tw-tier-label">
+                  <span className="badge-dot r">R</span> RARE WORDS
+                </span>
+                <span className="tw-tier-count">
+                  {gameState?.foundRareCount || 0}/{gameState?.rareWordTarget || 0}
+                </span>
+              </div>
+              <div className="tw-chips-grid">
+                {searchWordGroups.rare.map((slot) => (
+                  <div
+                    key={slot.id}
+                    className={`tw-slot ${slot.revealed ? 'found rare-found' : 'unfound'}`}
+                    onMouseEnter={() => {
+                      if (slot.revealed && slot.cells?.length) setFlashedCells(slot.cells);
+                    }}
+                    onMouseLeave={() => setFlashedCells([])}
+                  >
+                    <span className="tw-slot-word">
+                      {slot.revealed && slot.word
+                        ? slot.word
+                        : `${slot.startLetter}${'•'.repeat(Math.max(1, slot.length - 1))}`}
+                    </span>
+                    <span className="tw-slot-meta">
+                      {slot.revealed ? slot.finderName || 'Found' : `${slot.length}L`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Ultra Words Group */}
+            <div className="tw-group">
+              <div className="tw-group-header tier-ultra">
+                <span className="tw-tier-label">
+                  <span className="badge-dot u">U</span> ULTRA RARE WORDS
+                </span>
+                <span className="tw-tier-count">
+                  {gameState?.foundUltraCount || 0}/{gameState?.ultraWordTarget || 0}
+                </span>
+              </div>
+              <div className="tw-chips-grid">
+                {searchWordGroups.ultra.map((slot) => (
+                  <div
+                    key={slot.id}
+                    className={`tw-slot ${slot.revealed ? 'found ultra-found' : 'unfound'}`}
+                    onMouseEnter={() => {
+                      if (slot.revealed && slot.cells?.length) setFlashedCells(slot.cells);
+                    }}
+                    onMouseLeave={() => setFlashedCells([])}
+                  >
+                    <span className="tw-slot-word">
+                      {slot.revealed && slot.word
+                        ? slot.word
+                        : `${slot.startLetter}${'•'.repeat(Math.max(1, slot.length - 1))}`}
+                    </span>
+                    <span className="tw-slot-meta">
+                      {slot.revealed ? slot.finderName || 'Found' : `${slot.length}L`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+
       {/* WORD ANNOUNCE SLIDE-DOWN TOAST */}
       <div
         id="word-announce"
@@ -882,8 +1214,36 @@ export default function App() {
               {isSolo ? 'Run complete' : 'Round complete'}
             </h2>
             <div className="rev-title" id="solo-end-article">
-              {gameState.articleTitle || 'Wikipedia Article Solved'}
+              {gameState.articleTitle || gameState.unmaskedArticleTitle || 'Wikipedia Article Solved'}
             </div>
+
+            {topThreePlayers[0] && (
+              <div className="round-end-winner">
+                <div className="round-end-winner-pfp">
+                  {topThreePlayers[0].profileImage ? (
+                    <img
+                      src={topThreePlayers[0].profileImage}
+                      alt={(topThreePlayers[0].displayName || 'Player').replace(/^@/, '')}
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    (topThreePlayers[0].displayName || 'Player')
+                      .replace(/^@/, '')[0]
+                      ?.toUpperCase() || '1'
+                  )}
+                </div>
+                <div className="round-end-winner-info">
+                  <span className="round-end-winner-label">Top Player</span>
+                  <span className="round-end-winner-name">
+                    {(topThreePlayers[0].displayName || 'Player').replace(/^@/, '')}
+                  </span>
+                  <span className="round-end-winner-score">
+                    {topThreePlayers[0].score.toLocaleString()} pts
+                  </span>
+                </div>
+              </div>
+            )}
+
             {gameState.articleExtract && (
               <p
                 style={{
@@ -949,29 +1309,17 @@ export default function App() {
       <TikTokLivePanel
         status={tiktokStatus}
         chatItems={chatHistory}
+        gameState={gameState}
         isOpen={tiktokDrawerOpen}
         onClose={() => setTiktokDrawerOpen(false)}
+        onConnectionStateChange={(connected, username) => {
+          setTiktokStatus((prev) => ({
+            ...prev,
+            connected,
+            username,
+          }));
+        }}
       />
-
-      {/* LEGAL FOOTER */}
-      <footer className="wt-legal-footer">
-        <button type="button" onClick={() => switchMode('multiplayer')}>
-          Multiplayer
-        </button>{' '}
-        &middot;{' '}
-        <button type="button" onClick={() => switchMode('daily-solo')}>
-          Daily Solo
-        </button>{' '}
-        &middot;{' '}
-        <button type="button" onClick={() => switchMode('wikiword-4x4')}>
-          WikiWord 4×4
-        </button>{' '}
-        &middot;{' '}
-        <button type="button" onClick={() => setTiktokDrawerOpen(true)}>
-          TikTok Live Relay
-        </button>{' '}
-        &middot; <span>&copy; 2026 Word Tycoon</span>
-      </footer>
     </>
   );
 }

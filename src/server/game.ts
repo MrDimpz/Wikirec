@@ -7,6 +7,7 @@ import {
   PlayerScore,
   PublicGameState,
   RecentTag,
+  SearchWordSlot,
   TargetCard,
   TierName,
   TierPhase,
@@ -173,13 +174,6 @@ export class WiKirecGame {
     }
     this.titleWordSet = new Set(this.titleWords);
     this.titleSingularToPlural.clear();
-    for (const w of this.titleWords) {
-      const sg = singularizeForTitleAlias(w);
-      if (sg && !this.titleWordSet.has(sg)) {
-        this.titleWordSet.add(sg);
-        this.titleSingularToPlural.set(sg, w);
-      }
-    }
 
     // Build article word set for semantic boost + miss_in_article detection
     this.articleWordSet.clear();
@@ -254,7 +248,7 @@ export class WiKirecGame {
   private computeSemanticRank(word: string): { rank: number; closeness: number } {
     const target = this.rankTarget || this.titleWords[0] || '';
     if (!target) return { rank: 25000, closeness: 0.1 };
-    if (word === target || this.titleSingularToPlural.get(word) === target) {
+    if (word === target) {
       return { rank: 1, closeness: 1.0 };
     }
     const lexSim = wordSimilarity(word, target);
@@ -292,7 +286,7 @@ export class WiKirecGame {
     const gc = (this.guessCounts.get(norm) || 0) + 1;
     this.guessCounts.set(norm, gc);
 
-    const chipKey = this.titleSingularToPlural.get(norm) || norm;
+    const chipKey = norm;
     const isUnrevealedTitle =
       this.titleWordSet.has(norm) && !this.revealedTitleWords.has(chipKey);
 
@@ -360,7 +354,7 @@ export class WiKirecGame {
     if (!inGrid) {
       if (isUnrevealedTitle) {
         this.revealedTitleWords.set(chipKey, finder);
-        const titleBonus = getTitleBonus(this.revealedTitleWords.size - 1) + rankPoints;
+        const titleBonus = getTitleBonus(this.revealedTitleWords.size - 1);
         const path = this.targetPaths[chipKey] || [];
         const entry: FoundWordEntry = {
           word: chipKey,
@@ -402,13 +396,9 @@ export class WiKirecGame {
           rank: 1,
           closeness: 1,
           rankSlotAwarded,
-          rankPoints,
+          rankPoints: 0,
           finder,
         };
-      }
-
-      if (rankPoints > 0) {
-        this.creditPlayer(finder, rankPoints, 0, false);
       }
 
       const inArticle = this.articleWordSet.has(norm);
@@ -420,7 +410,6 @@ export class WiKirecGame {
         displayName: finder.displayName,
         platform: finder.platform,
         profileImage: finder.profileImage,
-        points: rankPoints > 0 ? rankPoints : undefined,
         rank,
         closeness,
         guessCount: gc,
@@ -430,14 +419,14 @@ export class WiKirecGame {
         result: resType,
         word: norm,
         cells: [],
-        points: rankPoints,
+        points: 0,
         guessCount: gc,
         tierName: null,
         isTitleWord: false,
         rank,
         closeness,
         rankSlotAwarded,
-        rankPoints,
+        rankPoints: 0,
         finder,
       };
     }
@@ -466,7 +455,7 @@ export class WiKirecGame {
       this.pickNextRankTarget();
     }
 
-    const totalPoints = baseScore + lengthBonus + rarityBonus + titleBonus + rankPoints;
+    const totalPoints = baseScore + lengthBonus + rarityBonus + titleBonus;
     const cells = this.allWords.get(norm) || [];
 
     const entry: FoundWordEntry = {
@@ -608,25 +597,13 @@ export class WiKirecGame {
   }
 
   recordEngagement(user: FinderInfo, type: 'like' | 'gift', count = 1) {
-    const prev = this.playerScores.get(user.platformUserId) || {
-      platformUserId: user.platformUserId,
-      displayName: user.displayName,
-      platform: user.platform,
-      profileImage: user.profileImage,
-      score: 0,
-      xp: 0,
-      wordCount: 0,
-      targetCount: 0,
-      titleWordCount: 0,
-      likesSent: 0,
-      giftsDiamonds: 0,
-    };
+    const prev = this.playerScores.get(user.platformUserId);
+    if (!prev) return;
     if (type === 'like') {
       prev.likesSent = (prev.likesSent || 0) + count;
       prev.xp += count * 2;
     } else {
       prev.giftsDiamonds = (prev.giftsDiamonds || 0) + count;
-      prev.score += count * 250;
       prev.xp += count * 25;
     }
     this.playerScores.set(user.platformUserId, prev);
@@ -691,13 +668,7 @@ export class WiKirecGame {
   }
 
   isComplete(): boolean {
-    if (this.titleWords.length > 0 && this.revealedTitleWords.size < this.titleWords.length) {
-      return false;
-    }
-    if (this.foundCommon.size < this.getCommonWordTarget()) return false;
-    if (this.foundRare.size < this.getRareWordTarget()) return false;
-    if (this.foundUltra.size < this.getUltraWordTarget()) return false;
-    return true;
+    return this.titleWords.length > 0 && this.revealedTitleWords.size >= this.titleWords.length;
   }
 
   getTitleChips(): TitleChip[] {
@@ -829,6 +800,81 @@ export class WiKirecGame {
     return Array.from(active);
   }
 
+  getSearchWords(): SearchWordSlot[] {
+    const slots: SearchWordSlot[] = [];
+
+    // 1. Title Words being looked for
+    this.titleWords.forEach((tw, idx) => {
+      const finder = this.revealedTitleWords.get(tw) || null;
+      const foundEntry = this.foundWords.get(tw);
+      slots.push({
+        id: `title-${idx}-${tw.length}`,
+        tier: 'title',
+        length: tw.length,
+        startLetter: tw[0].toUpperCase(),
+        revealed: !!finder,
+        word: finder ? tw.toUpperCase() : null,
+        unmaskedWord: tw.toUpperCase(),
+        finderName: finder?.displayName || null,
+        points: foundEntry?.points,
+        cells: foundEntry?.cells || [],
+      });
+    });
+
+    // Helper to build tier target slots (found first, then unfound up to target count)
+    const addTierSlots = (
+      tier: 'common' | 'rare' | 'ultra',
+      wordMap: Map<string, number[]>,
+      foundMap: Map<string, FinderInfo>,
+      targetCount: number
+    ) => {
+      const foundWordsList = Array.from(foundMap.entries());
+      const unfoundWordsList = Array.from(wordMap.keys()).filter((w) => !foundMap.has(w));
+      const totalToShow = Math.max(targetCount, foundWordsList.length);
+
+      let count = 0;
+      for (const [w, finder] of foundWordsList) {
+        if (count >= totalToShow) break;
+        const entry = this.foundWords.get(w);
+        slots.push({
+          id: `${tier}-found-${w}`,
+          tier,
+          length: w.length,
+          startLetter: w[0].toUpperCase(),
+          revealed: true,
+          word: w.toUpperCase(),
+          unmaskedWord: w.toUpperCase(),
+          finderName: finder.displayName,
+          points: entry?.points,
+          cells: entry?.cells || wordMap.get(w) || [],
+        });
+        count++;
+      }
+
+      for (let i = 0; i < unfoundWordsList.length && count < totalToShow; i++) {
+        const w = unfoundWordsList[i];
+        slots.push({
+          id: `${tier}-unfound-${i}-${w.length}`,
+          tier,
+          length: w.length,
+          startLetter: w[0].toUpperCase(),
+          revealed: false,
+          word: null,
+          unmaskedWord: w.toUpperCase(),
+          finderName: null,
+          cells: wordMap.get(w) || [],
+        });
+        count++;
+      }
+    };
+
+    addTierSlots('common', this.commonWords, this.foundCommon, this.getCommonWordTarget());
+    addTierSlots('rare', this.rareWords, this.foundRare, this.getRareWordTarget());
+    addTierSlots('ultra', this.ultraRareWords, this.foundUltra, this.getUltraWordTarget());
+
+    return slots;
+  }
+
   publicState(): PublicGameState {
     const allTitleRevealed =
       this.titleWords.length > 0 && this.revealedTitleWords.size >= this.titleWords.length;
@@ -842,6 +888,7 @@ export class WiKirecGame {
       cols: this.cols,
       minWordLength: this.minWordLength,
       articleTitle: showArticle ? this.article.title : null,
+      unmaskedArticleTitle: this.article.title,
       articleExtract: showArticle ? this.article.extract : null,
       articleCategory: this.article.category,
       articleUrl: showArticle ? this.article.url : null,
@@ -864,8 +911,11 @@ export class WiKirecGame {
       currentTierPhase: this.getCurrentTierPhase(),
       activeTierStartCells: this.getActiveTierStartCells(),
       activeCommonCells: this.getActiveCommonCells(),
-      topPlayers: Array.from(this.playerScores.values()).sort((a, b) => b.score - a.score),
+      topPlayers: Array.from(this.playerScores.values())
+        .filter((p) => p.wordCount > 0 && p.score > 0)
+        .sort((a, b) => b.score - a.score),
       recentTags: this.recentTags.slice(-14),
+      searchWords: this.getSearchWords(),
       isComplete: this.isComplete(),
       startTime: this.startTime,
       roundEndCountdownSec: this.roundEndCountdownSec,

@@ -93,6 +93,19 @@ export interface HintData {
   wordTier: TierName;
 }
 
+export interface SearchWordSlot {
+  id: string;
+  tier: 'title' | 'common' | 'rare' | 'ultra';
+  length: number;
+  startLetter: string;
+  revealed: boolean;
+  word: string | null;
+  unmaskedWord: string;
+  finderName?: string | null;
+  points?: number;
+  cells?: number[];
+}
+
 export interface PublicGameState {
   roundId: string;
   mode: GameMode;
@@ -101,6 +114,7 @@ export interface PublicGameState {
   cols: number;
   minWordLength: number;
   articleTitle: string | null;
+  unmaskedArticleTitle: string;
   articleExtract: string | null;
   articleCategory: string;
   articleUrl: string | null;
@@ -125,6 +139,7 @@ export interface PublicGameState {
   activeCommonCells: number[];
   topPlayers: PlayerScore[];
   recentTags: RecentTag[];
+  searchWords: SearchWordSlot[];
   isComplete: boolean;
   startTime: number;
   roundEndCountdownSec: number | null;
@@ -166,6 +181,7 @@ export interface LiveChatItem {
   platform: 'tiktok' | 'web';
   username: string;
   displayName: string;
+  profileImage?: string;
   comment: string;
   guessResult?: 'correct' | 'already_found' | 'miss_in_article' | 'incorrect' | 'chat';
   points?: number;

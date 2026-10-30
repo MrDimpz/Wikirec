@@ -1,17 +1,30 @@
 import express from 'express';
+import cors from 'cors';
 import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Server as SocketIOServer } from 'socket.io';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createServer as createViteServer } from 'vite';
+import * as TikTokConnector from 'tiktok-live-connector';
 import { createNewGameInstance, WiKirecGame } from './src/server/game';
-import { TikTokLiveBridge } from './src/server/tiktok-bridge';
 import {
   FinderInfo,
   GameMode,
   LiveChatItem,
-  PublicGameState,
+  TikTokConnectionStatus,
 } from './src/shared/types';
+
+// Support both WebcastPushConnection (v1) and TikTokLiveConnection (v2.1.1-beta1) with safe default options
+const BaseTikTokConnection: any =
+  (TikTokConnector as any).WebcastPushConnection ||
+  (TikTokConnector as any).TikTokLiveConnection;
+
+class WebcastPushConnection extends BaseTikTokConnection {
+  constructor(username: string, options: Record<string, any> = {}) {
+    super(username, options);
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,11 +40,149 @@ interface ClientMeta {
   mode: GameMode;
 }
 
+function normalizeChatData(data: any) {
+  const uniqueId = String(
+    data?.uniqueId ||
+      data?.user?.displayId ||
+      data?.user?.uniqueId ||
+      data?.username ||
+      data?.user?.id ||
+      'tiktok_viewer'
+  );
+  const nickname = String(
+    data?.nickname ||
+      data?.user?.nickname ||
+      data?.displayName ||
+      uniqueId
+  );
+  const comment = String(
+    data?.comment ??
+      data?.content ??
+      data?.text ??
+      data?.message ??
+      ''
+  ).trim();
+  const profilePictureUrl = String(
+    data?.profilePictureUrl ||
+      data?.user?.profilePictureUrl ||
+      data?.user?.avatarThumb?.urlList?.[0] ||
+      data?.user?.avatarMedium?.urlList?.[0] ||
+      data?.user?.avatarLarger?.urlList?.[0] ||
+      data?.user?.profilePicture?.url?.[0] ||
+      data?.user?.profilePicture?.urls?.[0] ||
+      ''
+  );
+
+  return {
+    uniqueId,
+    nickname,
+    comment,
+    profilePictureUrl,
+  };
+}
+
+function normalizeLikeData(data: any) {
+  const uniqueId = String(
+    data?.uniqueId ||
+      data?.user?.displayId ||
+      data?.user?.uniqueId ||
+      data?.username ||
+      data?.user?.id ||
+      'tiktok_viewer'
+  );
+  const nickname = String(
+    data?.nickname ||
+      data?.user?.nickname ||
+      data?.displayName ||
+      uniqueId
+  );
+  const likeCount = Math.max(1, Number(data?.likeCount || data?.count || 1));
+  const totalLikeCount = Number(data?.totalLikeCount || data?.total || likeCount);
+  const profilePictureUrl = String(
+    data?.profilePictureUrl ||
+      data?.user?.profilePictureUrl ||
+      data?.user?.avatarThumb?.urlList?.[0] ||
+      data?.user?.profilePicture?.url?.[0] ||
+      ''
+  );
+
+  return {
+    uniqueId,
+    nickname,
+    likeCount,
+    totalLikeCount,
+    profilePictureUrl,
+  };
+}
+
+function normalizeGiftData(data: any) {
+  const uniqueId = String(
+    data?.uniqueId ||
+      data?.user?.displayId ||
+      data?.user?.uniqueId ||
+      data?.username ||
+      data?.user?.id ||
+      'tiktok_viewer'
+  );
+  const nickname = String(
+    data?.nickname ||
+      data?.user?.nickname ||
+      data?.displayName ||
+      uniqueId
+  );
+  const giftName = String(
+    data?.giftName ||
+      data?.gift?.name ||
+      data?.giftDetails?.giftName ||
+      data?.extendedGiftInfo?.name ||
+      'TikTok Gift'
+  );
+  const diamondCount = Math.max(
+    1,
+    Number(
+      data?.diamondCount ||
+        data?.gift?.diamondCount ||
+        data?.giftDetails?.diamondCount ||
+        10
+    )
+  );
+  const repeatCount = Math.max(1, Number(data?.repeatCount || 1));
+  const repeatEnd = Boolean(data?.repeatEnd ?? true);
+  const profilePictureUrl = String(
+    data?.profilePictureUrl ||
+      data?.user?.profilePictureUrl ||
+      data?.user?.avatarThumb?.urlList?.[0] ||
+      data?.user?.profilePicture?.url?.[0] ||
+      ''
+  );
+
+  return {
+    uniqueId,
+    nickname,
+    giftName,
+    diamondCount,
+    repeatCount,
+    repeatEnd,
+    profilePictureUrl,
+  };
+}
+
 async function startServer() {
   const app = express();
+  app.use(cors());
   app.use(express.json());
 
   const server = http.createServer(app);
+
+  // Attach Socket.IO Server for real-time TikTok Live & Simulation events
+  const io = new SocketIOServer(server, {
+    cors: {
+      origin: '*',
+      methods: ['GET', 'POST'],
+    },
+  });
+
+  // Attach WebSocketServer for "/ws" game state synchronization
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (request, socket, head) => {
@@ -51,6 +202,22 @@ async function startServer() {
   let wikiword4x4Game = await createNewGameInstance('wikiword-4x4', `boot4x4-${Date.now()}`);
   let mpCountdownInterval: NodeJS.Timeout | null = null;
   let wwCountdownInterval: NodeJS.Timeout | null = null;
+
+  // TikTok Live Connection state
+  let tiktokConn: InstanceType<typeof WebcastPushConnection> | null = null;
+  const tiktokStatus: TikTokConnectionStatus = {
+    connected: false,
+    mode: 'webhook-ready',
+    username: null,
+    tikfinityUrl: null,
+    viewerCount: 0,
+    chatEventsProcessed: 0,
+    guessesFromChat: 0,
+    likesCount: 0,
+    giftsDiamonds: 0,
+    lastError: null,
+  };
+  let currentRoomId: string | null = null;
 
   function getTodaySeed(): string {
     const now = new Date();
@@ -94,7 +261,7 @@ async function startServer() {
 
   function pushLiveChatItem(item: LiveChatItem) {
     liveChatHistory.push(item);
-    if (liveChatHistory.length > 40) {
+    if (liveChatHistory.length > 50) {
       liveChatHistory.shift();
     }
     broadcastAll({
@@ -102,6 +269,9 @@ async function startServer() {
       item,
     });
   }
+
+  let desiredTikTokUsername: string | null = null;
+  let tiktokReconnectTimer: NodeJS.Timeout | null = null;
 
   function scheduleRoundRollover(mode: 'multiplayer' | 'wikiword-4x4') {
     if (mode === 'multiplayer') {
@@ -127,6 +297,7 @@ async function startServer() {
             type: 'game:state',
             state: multiplayerGame.publicState(),
           });
+          broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
         }
       }, 1000);
     } else {
@@ -152,75 +323,335 @@ async function startServer() {
             type: 'game:state',
             state: wikiword4x4Game.publicState(),
           });
+          broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
         }
       }, 1000);
     }
   }
 
-  // Initialize TikTok Live Bridge
-  const tiktokBridge = new TikTokLiveBridge({
-    onChatGuess: (word, finder, rawComment) => {
-      const outcome = multiplayerGame.guess(word, finder);
+  // Extract a single-word alphabetical answer, ignoring capitalization and punctuation.
+  // Returns null if the message contains multiple words, numbers (e.g. "zn55"), or is < 3 letters.
+  function extractSingleWordFromChat(rawComment: string): string | null {
+    const strippedPunctuation = String(rawComment || '')
+      .replace(/['’`]/g, '')
+      .replace(/[^a-zA-Z0-9\s]/g, '')
+      .trim();
+    if (!strippedPunctuation) return null;
+    const words = strippedPunctuation.split(/\s+/).filter(Boolean);
+    if (words.length !== 1) return null;
+    const singleWord = words[0].toLowerCase();
+    if (!/^[a-z]{3,15}$/.test(singleWord)) return null;
+    return singleWord;
+  }
+
+  // Process a TikTok chat message (from live stream or simulation) into the chat box and active game(s)
+  function handleTikTokChatInGame(rawData: any) {
+    const data = normalizeChatData(rawData);
+    if (!data.comment) return;
+
+    tiktokStatus.chatEventsProcessed += 1;
+
+    const finder: FinderInfo = {
+      displayName: data.nickname || data.uniqueId,
+      platform: 'tiktok',
+      platformUserId: `tt_${data.uniqueId}`,
+      profileImage: data.profilePictureUrl || undefined,
+    };
+
+    // Only accept single-word alphabetical answers for the puzzle itself (ignoring capitalization & punctuation),
+    // while ALWAYS showing all chat messages (including multi-word and numbers) in the Live Chat Stream box.
+    const singleWord = extractSingleWordFromChat(data.comment);
+    if (!singleWord) {
       pushLiveChatItem({
         id: `tt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         platform: 'tiktok',
-        username: finder.platformUserId.replace(/^tt_/, ''),
+        username: data.uniqueId,
         displayName: finder.displayName,
-        comment: rawComment,
-        guessResult: outcome.result === 'too_short' ? 'chat' : outcome.result,
-        points: outcome.points,
-        isTitleWord: outcome.isTitleWord,
-        tierName: outcome.tierName,
+        profileImage: finder.profileImage || undefined,
+        comment: data.comment,
+        guessResult: 'chat',
         timestamp: Date.now(),
         eventType: 'chat',
       });
+      broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+      return;
+    }
 
-      if (outcome.result !== 'too_short') {
-        broadcastToMode('multiplayer', {
-          type: 'guess:stream',
-          outcome,
-        });
-      }
+    const bestOutcome = multiplayerGame.guess(singleWord, finder);
+    tiktokStatus.guessesFromChat += 1;
 
-      if (outcome.result === 'correct') {
-        broadcastToMode('multiplayer', {
-          type: 'game:word-found',
-          outcome,
-        });
-      }
-      broadcastToMode('multiplayer', {
-        type: 'game:state',
-        state: multiplayerGame.publicState(),
-      });
-
-      if (multiplayerGame.isComplete()) {
-        scheduleRoundRollover('multiplayer');
-      }
-    },
-    onEngagement: (finder, type, count, giftName) => {
-      multiplayerGame.recordEngagement(finder, type, count);
-      pushLiveChatItem({
-        id: `tt-eng-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        platform: 'tiktok',
-        username: finder.platformUserId.replace(/^tt_/, ''),
-        displayName: finder.displayName,
-        comment: type === 'gift' ? `Sent ${giftName || 'Gift'} (${count} diamonds)` : `Sent ${count} likes`,
-        timestamp: Date.now(),
-        eventType: type,
-        giftName,
-        diamondCount: type === 'gift' ? count : undefined,
-      });
-      broadcastToMode('multiplayer', {
-        type: 'game:state',
-        state: multiplayerGame.publicState(),
-      });
-    },
-    onStatusChange: (status) => {
+    if (bestOutcome.result === 'correct') {
       broadcastAll({
-        type: 'tiktok:status',
-        status,
+        type: 'game:word-found',
+        outcome: bestOutcome,
       });
-    },
+    }
+
+    // Also apply to any active solo/4x4 games currently open by connected clients so the streamer sees guesses in any mode
+    for (const [ws, meta] of clients.entries()) {
+      if (ws.readyState !== WebSocket.OPEN) continue;
+      if (meta.mode === 'wikiword-4x4') {
+        wikiword4x4Game.guess(singleWord, finder);
+        ws.send(
+          JSON.stringify({
+            type: 'game:state',
+            state: wikiword4x4Game.publicState(),
+          })
+        );
+      } else if (meta.mode === 'daily-solo' || meta.mode === 'practice-solo') {
+        const key = `${meta.sessionId}:${meta.mode}`;
+        const soloGame = soloGames.get(key);
+        if (soloGame) {
+          soloGame.guess(singleWord, finder);
+          ws.send(
+            JSON.stringify({
+              type: 'game:state',
+              state: soloGame.publicState(),
+            })
+          );
+        }
+      }
+    }
+
+    pushLiveChatItem({
+      id: `tt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      platform: 'tiktok',
+      username: data.uniqueId,
+      displayName: finder.displayName,
+      profileImage: finder.profileImage || undefined,
+      comment: data.comment,
+      guessResult: bestOutcome.result === 'too_short' ? 'chat' : bestOutcome.result,
+      points: bestOutcome.result === 'correct' ? bestOutcome.points : undefined,
+      isTitleWord: bestOutcome.isTitleWord,
+      tierName: bestOutcome.tierName,
+      timestamp: Date.now(),
+      eventType: 'chat',
+    });
+
+    broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+    broadcastToMode('multiplayer', {
+      type: 'game:state',
+      state: multiplayerGame.publicState(),
+    });
+
+    if (multiplayerGame.isComplete()) {
+      scheduleRoundRollover('multiplayer');
+    }
+  }
+
+  function handleTikTokLikeInGame(rawData: any) {
+    const data = normalizeLikeData(rawData);
+    tiktokStatus.likesCount += data.likeCount;
+    const finder: FinderInfo = {
+      displayName: data.nickname || data.uniqueId,
+      platform: 'tiktok',
+      platformUserId: `tt_${data.uniqueId}`,
+      profileImage: data.profilePictureUrl || undefined,
+    };
+    multiplayerGame.recordEngagement(finder, 'like', data.likeCount);
+    broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+  }
+
+  function handleTikTokGiftInGame(rawData: any) {
+    const data = normalizeGiftData(rawData);
+    const totalDiamonds = data.diamondCount * data.repeatCount;
+    tiktokStatus.giftsDiamonds += totalDiamonds;
+    const finder: FinderInfo = {
+      displayName: data.nickname || data.uniqueId,
+      platform: 'tiktok',
+      platformUserId: `tt_${data.uniqueId}`,
+      profileImage: data.profilePictureUrl || undefined,
+    };
+    multiplayerGame.recordEngagement(finder, 'gift', totalDiamonds);
+    broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+  }
+
+  function startTikTokConnection(cleanUsername: string, requestingSocket?: any) {
+    if (tiktokReconnectTimer) {
+      clearTimeout(tiktokReconnectTimer);
+      tiktokReconnectTimer = null;
+    }
+
+    // If already connected to the same username, keep the existing connection alive!
+    if (
+      tiktokConn &&
+      tiktokStatus.connected &&
+      tiktokStatus.username?.toLowerCase() === cleanUsername.toLowerCase()
+    ) {
+      const payload = {
+        username: tiktokStatus.username,
+        roomId: currentRoomId || 'live',
+      };
+      if (requestingSocket) requestingSocket.emit('tiktok-connected', payload);
+      io.emit('tiktok-connected', payload);
+      broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+      return;
+    }
+
+    if (tiktokConn) {
+      try {
+        tiktokConn.removeAllListeners();
+        tiktokConn.disconnect();
+      } catch {}
+      tiktokConn = null;
+    }
+
+    desiredTikTokUsername = cleanUsername;
+    const conn = new WebcastPushConnection(cleanUsername);
+    tiktokConn = conn;
+
+    conn
+      .connect()
+      .then((state: any) => {
+        if (tiktokConn !== conn) return;
+        const roomId = String(state?.roomId || state?.roomInfo?.id || 'live');
+        currentRoomId = roomId;
+        tiktokStatus.connected = true;
+        tiktokStatus.mode = 'tiktok-live';
+        tiktokStatus.username = cleanUsername;
+        tiktokStatus.lastError = null;
+
+        if (requestingSocket) {
+          requestingSocket.emit('tiktok-connected', {
+            username: cleanUsername,
+            roomId,
+          });
+        }
+        io.emit('tiktok-connected', {
+          username: cleanUsername,
+          roomId,
+        });
+        broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+      })
+      .catch((err: any) => {
+        if (tiktokConn !== conn) return;
+        const errMsg = err?.message || String(err);
+        // If we were already connected and a background reconnect failed transiently, retry if desiredTikTokUsername is set
+        if (desiredTikTokUsername === cleanUsername && tiktokStatus.connected) {
+          tiktokReconnectTimer = setTimeout(() => {
+            if (desiredTikTokUsername === cleanUsername) {
+              startTikTokConnection(cleanUsername);
+            }
+          }, 3000);
+          return;
+        }
+        tiktokStatus.connected = false;
+        tiktokStatus.lastError = errMsg;
+        if (requestingSocket) requestingSocket.emit('tiktok-error', errMsg);
+        broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+      });
+
+    conn.on('chat', (data: any) => {
+      if (tiktokConn !== conn) return;
+      const normalized = normalizeChatData(data);
+      io.emit('chat-message', normalized);
+      handleTikTokChatInGame(normalized);
+    });
+
+    conn.on('like', (data: any) => {
+      if (tiktokConn !== conn) return;
+      const normalized = normalizeLikeData(data);
+      io.emit('like-event', normalized);
+      handleTikTokLikeInGame(normalized);
+    });
+
+    conn.on('gift', (data: any) => {
+      if (tiktokConn !== conn) return;
+      const normalized = normalizeGiftData(data);
+      io.emit('gift-event', normalized);
+      handleTikTokGiftInGame(normalized);
+    });
+
+    conn.on('disconnected', () => {
+      if (tiktokConn !== conn) return;
+      // Keep the live connection persistent across rounds by auto-reconnecting if the user did not manually disconnect
+      if (desiredTikTokUsername === cleanUsername) {
+        tiktokReconnectTimer = setTimeout(() => {
+          if (desiredTikTokUsername === cleanUsername) {
+            startTikTokConnection(cleanUsername);
+          }
+        }, 2000);
+        return;
+      }
+      tiktokStatus.connected = false;
+      currentRoomId = null;
+      io.emit('tiktok-disconnected');
+      broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+    });
+
+    conn.on('error', (err: any) => {
+      if (tiktokConn !== conn) return;
+      if (!tiktokStatus.connected && requestingSocket) {
+        requestingSocket.emit('tiktok-error', err?.message || String(err));
+      }
+    });
+  }
+
+  // Socket.IO Real-Time TikTok Live Integration
+  io.on('connection', (socket) => {
+    // Sync current TikTok state if already connected
+    if (tiktokStatus.connected && tiktokStatus.username) {
+      socket.emit('tiktok-connected', {
+        username: tiktokStatus.username,
+        roomId: currentRoomId || 'live',
+      });
+    }
+
+    // 1. connect-tiktok (receives username: string)
+    socket.on('connect-tiktok', (username: string) => {
+      try {
+        const raw = String(username || '').trim();
+        const cleanUsername = raw.startsWith('@') ? raw.substring(1) : raw;
+        if (!cleanUsername) {
+          socket.emit('tiktok-error', 'Please enter a valid TikTok username');
+          return;
+        }
+        startTikTokConnection(cleanUsername, socket);
+      } catch (err: any) {
+        socket.emit('tiktok-error', err?.message || String(err));
+      }
+    });
+
+    // 2. disconnect-tiktok
+    socket.on('disconnect-tiktok', () => {
+      desiredTikTokUsername = null;
+      if (tiktokReconnectTimer) {
+        clearTimeout(tiktokReconnectTimer);
+        tiktokReconnectTimer = null;
+      }
+      if (tiktokConn) {
+        try {
+          tiktokConn.removeAllListeners();
+          tiktokConn.disconnect();
+        } catch {}
+        tiktokConn = null;
+      }
+      tiktokStatus.connected = false;
+      tiktokStatus.username = null;
+      currentRoomId = null;
+      socket.emit('tiktok-disconnected');
+      io.emit('tiktok-disconnected');
+      broadcastAll({ type: 'tiktok:status', status: tiktokStatus });
+    });
+
+    // 3. Simulation / Testing Passthrough Events
+    socket.on('chat-message', (data: any) => {
+      const normalized = normalizeChatData(data);
+      io.emit('chat-message', normalized);
+      handleTikTokChatInGame(normalized);
+    });
+
+    socket.on('like-event', (data: any) => {
+      const normalized = normalizeLikeData(data);
+      io.emit('like-event', normalized);
+      handleTikTokLikeInGame(normalized);
+    });
+
+    socket.on('gift-event', (data: any) => {
+      const normalized = normalizeGiftData(data);
+      io.emit('gift-event', normalized);
+      handleTikTokGiftInGame(normalized);
+    });
   });
 
   async function getOrCreateSoloGame(sessionId: string, mode: 'daily-solo' | 'practice-solo'): Promise<WiKirecGame> {
@@ -240,37 +671,13 @@ async function startServer() {
     return getOrCreateSoloGame(meta.sessionId, meta.mode);
   }
 
-  // REST Endpoints for TikTok Webhook & Streamer Controls
+  // REST Endpoints
   app.get('/api/health', (_req, res) => {
     res.json({
       ok: true,
-      tiktok: tiktokBridge.getStatus(),
+      tiktok: tiktokStatus,
       presence: getViewerPresence(),
     });
-  });
-
-  app.post('/api/tiktok/connect', async (req, res) => {
-    const { username, tikfinityUrl } = req.body || {};
-    if (tikfinityUrl) {
-      const result = tiktokBridge.connectTikFinityWebSocket(tikfinityUrl);
-      return res.json({ ...result, status: tiktokBridge.getStatus() });
-    }
-    if (username) {
-      const result = await tiktokBridge.connectTikTokUsername(username);
-      return res.json({ ...result, status: tiktokBridge.getStatus() });
-    }
-    return res.status(400).json({ ok: false, error: 'Provide username or tikfinityUrl' });
-  });
-
-  app.post('/api/tiktok/disconnect', (_req, res) => {
-    tiktokBridge.disconnect();
-    res.json({ ok: true, status: tiktokBridge.getStatus() });
-  });
-
-  // External Webhook for TikFinity / Streamer.bot / Live TikTok Chat
-  app.post('/api/tiktok/webhook', (req, res) => {
-    tiktokBridge.handleWebhookOrTikFinityPayload(req.body);
-    res.json({ ok: true, status: tiktokBridge.getStatus() });
   });
 
   // Helper endpoint to inspect unfound words when testing TikTok chat interaction
@@ -300,12 +707,11 @@ async function startServer() {
     };
     clients.set(ws, defaultMeta);
 
-    // Send initial state immediately
     ws.send(
       JSON.stringify({
         type: 'init',
         state: multiplayerGame.publicState(),
-        tiktokStatus: tiktokBridge.getStatus(),
+        tiktokStatus,
         chatHistory: liveChatHistory,
         presence: getViewerPresence(),
       })
@@ -362,15 +768,15 @@ async function startServer() {
         }
 
         if (msg.type === 'guess:submit') {
-          const word = String(msg.word || '').trim();
-          if (!word) return;
+          const singleWord = extractSingleWordFromChat(String(msg.word || ''));
+          if (!singleWord) return;
           const finder: FinderInfo = {
             displayName: meta.displayName,
             platform: 'web',
             platformUserId: meta.sessionId,
           };
           const game = await getGameForClient(meta);
-          const outcome = game.guess(word, finder);
+          const outcome = game.guess(singleWord, finder);
 
           ws.send(
             JSON.stringify({
@@ -379,30 +785,27 @@ async function startServer() {
             })
           );
 
+          if (outcome.result !== 'too_short') {
+            pushLiveChatItem({
+              id: `web-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              platform: 'web',
+              username: meta.displayName.toLowerCase().replace(/\s+/g, '_'),
+              displayName: meta.displayName,
+              comment: outcome.word.toUpperCase(),
+              guessResult: outcome.result,
+              points: outcome.points,
+              isTitleWord: outcome.isTitleWord,
+              tierName: outcome.tierName,
+              timestamp: Date.now(),
+              eventType: 'chat',
+            });
+          }
+
           if (meta.mode === 'multiplayer' || meta.mode === 'wikiword-4x4') {
-            if (outcome.result !== 'too_short') {
-              broadcastToMode(meta.mode, {
-                type: 'guess:stream',
-                outcome,
-              });
-            }
             if (outcome.result === 'correct') {
               broadcastToMode(meta.mode, {
                 type: 'game:word-found',
                 outcome,
-              });
-              pushLiveChatItem({
-                id: `web-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                platform: 'web',
-                username: meta.displayName.toLowerCase().replace(/\s+/g, '_'),
-                displayName: meta.displayName,
-                comment: outcome.word.toUpperCase(),
-                guessResult: 'correct',
-                points: outcome.points,
-                isTitleWord: outcome.isTitleWord,
-                tierName: outcome.tierName,
-                timestamp: Date.now(),
-                eventType: 'chat',
               });
             }
             broadcastToMode(meta.mode, {
@@ -413,14 +816,6 @@ async function startServer() {
               scheduleRoundRollover(meta.mode);
             }
           } else {
-            if (outcome.result !== 'too_short') {
-              ws.send(
-                JSON.stringify({
-                  type: 'guess:stream',
-                  outcome,
-                })
-              );
-            }
             ws.send(
               JSON.stringify({
                 type: 'game:state',
