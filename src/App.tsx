@@ -1324,159 +1324,161 @@ export default function App() {
       </footer>
         </div>
 
-        {/* RIGHT BOX: WORDS BEING LOOKED FOR (50px gap to the right of the game) */}
-        <aside className="side-box right-words-box" aria-label="Words Being Looked For">
-          <div className="side-box-header">
-            <div className="side-box-title">
-              <span>WORDS BEING LOOKED FOR</span>
-            </div>
-            <span className="side-box-counter">
-              {(gameState?.revealedTitleWordCount || 0) +
-                (gameState?.foundCommonCount || 0) +
-                (gameState?.foundRareCount || 0) +
-                (gameState?.foundUltraCount || 0)}
-              /
-              {(gameState?.titleWordCount || 0) +
-                (gameState?.commonWordTarget || 0) +
-                (gameState?.rareWordTarget || 0) +
-                (gameState?.ultraWordTarget || 0)}
-            </span>
-          </div>
-
-          <div className="side-box-body target-words-list">
-            {/* Title Words Group */}
-            <div className="tw-group">
-              <div className="tw-group-header tier-title">
-                <span className="tw-tier-label">
-                  <span className="badge-dot t">T</span> TITLE WORDS
-                </span>
-                <span className="tw-tier-count">
-                  {gameState?.revealedTitleWordCount || 0}/{gameState?.titleWordCount || 0}
-                </span>
+        {/* RIGHT BOX: WORDS BEING LOOKED FOR (Hidden when connected to a live stream) */}
+        {!tiktokStatus.connected && (
+          <aside className="side-box right-words-box" aria-label="Words Being Looked For">
+            <div className="side-box-header">
+              <div className="side-box-title">
+                <span>WORDS BEING LOOKED FOR</span>
               </div>
-              <div className="tw-chips-grid">
-                {searchWordGroups.title.map((slot) => (
-                  <div
-                    key={slot.id}
-                    className={`tw-slot ${slot.revealed ? 'found title-found' : 'unfound'}`}
-                    onMouseEnter={() => {
-                      if (slot.revealed && slot.cells?.length) setFlashedCells(slot.cells);
-                    }}
-                    onMouseLeave={() => setFlashedCells([])}
-                  >
-                    <span className="tw-slot-word">
-                      {slot.revealed && slot.word
-                        ? slot.word
-                        : `${slot.startLetter}${'•'.repeat(Math.max(1, slot.length - 1))}`}
-                    </span>
-                    <span className="tw-slot-meta">
-                      {slot.revealed ? slot.finderName || 'Found' : `${slot.length}L`}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              <span className="side-box-counter">
+                {(gameState?.revealedTitleWordCount || 0) +
+                  (gameState?.foundCommonCount || 0) +
+                  (gameState?.foundRareCount || 0) +
+                  (gameState?.foundUltraCount || 0)}
+                /
+                {(gameState?.titleWordCount || 0) +
+                  (gameState?.commonWordTarget || 0) +
+                  (gameState?.rareWordTarget || 0) +
+                  (gameState?.ultraWordTarget || 0)}
+              </span>
             </div>
 
-            {/* Common Words Group */}
-            <div className="tw-group">
-              <div className="tw-group-header tier-common">
-                <span className="tw-tier-label">
-                  <span className="badge-dot c">C</span> COMMON WORDS
-                </span>
-                <span className="tw-tier-count">
-                  {gameState?.foundCommonCount || 0}/{gameState?.commonWordTarget || 0}
-                </span>
+            <div className="side-box-body target-words-list">
+              {/* Title Words Group */}
+              <div className="tw-group">
+                <div className="tw-group-header tier-title">
+                  <span className="tw-tier-label">
+                    <span className="badge-dot t">T</span> TITLE WORDS
+                  </span>
+                  <span className="tw-tier-count">
+                    {gameState?.revealedTitleWordCount || 0}/{gameState?.titleWordCount || 0}
+                  </span>
+                </div>
+                <div className="tw-chips-grid">
+                  {searchWordGroups.title.map((slot) => (
+                    <div
+                      key={slot.id}
+                      className={`tw-slot ${slot.revealed ? 'found title-found' : 'unfound'}`}
+                      onMouseEnter={() => {
+                        if (slot.revealed && slot.cells?.length) setFlashedCells(slot.cells);
+                      }}
+                      onMouseLeave={() => setFlashedCells([])}
+                    >
+                      <span className="tw-slot-word">
+                        {slot.revealed && slot.word
+                          ? slot.word
+                          : `${slot.startLetter}${'•'.repeat(Math.max(1, slot.length - 1))}`}
+                      </span>
+                      <span className="tw-slot-meta">
+                        {slot.revealed ? slot.finderName || 'Found' : `${slot.length}L`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="tw-chips-grid">
-                {searchWordGroups.common.map((slot) => (
-                  <div
-                    key={slot.id}
-                    className={`tw-slot ${slot.revealed ? 'found common-found' : 'unfound'}`}
-                    onMouseEnter={() => {
-                      if (slot.revealed && slot.cells?.length) setFlashedCells(slot.cells);
-                    }}
-                    onMouseLeave={() => setFlashedCells([])}
-                  >
-                    <span className="tw-slot-word">
-                      {slot.revealed && slot.word
-                        ? slot.word
-                        : `${slot.startLetter}${'•'.repeat(Math.max(1, slot.length - 1))}`}
-                    </span>
-                    <span className="tw-slot-meta">
-                      {slot.revealed ? slot.finderName || 'Found' : `${slot.length}L`}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
 
-            {/* Rare Words Group */}
-            <div className="tw-group">
-              <div className="tw-group-header tier-rare">
-                <span className="tw-tier-label">
-                  <span className="badge-dot r">R</span> RARE WORDS
-                </span>
-                <span className="tw-tier-count">
-                  {gameState?.foundRareCount || 0}/{gameState?.rareWordTarget || 0}
-                </span>
+              {/* Common Words Group */}
+              <div className="tw-group">
+                <div className="tw-group-header tier-common">
+                  <span className="tw-tier-label">
+                    <span className="badge-dot c">C</span> COMMON WORDS
+                  </span>
+                  <span className="tw-tier-count">
+                    {gameState?.foundCommonCount || 0}/{gameState?.commonWordTarget || 0}
+                  </span>
+                </div>
+                <div className="tw-chips-grid">
+                  {searchWordGroups.common.map((slot) => (
+                    <div
+                      key={slot.id}
+                      className={`tw-slot ${slot.revealed ? 'found common-found' : 'unfound'}`}
+                      onMouseEnter={() => {
+                        if (slot.revealed && slot.cells?.length) setFlashedCells(slot.cells);
+                      }}
+                      onMouseLeave={() => setFlashedCells([])}
+                    >
+                      <span className="tw-slot-word">
+                        {slot.revealed && slot.word
+                          ? slot.word
+                          : `${slot.startLetter}${'•'.repeat(Math.max(1, slot.length - 1))}`}
+                      </span>
+                      <span className="tw-slot-meta">
+                        {slot.revealed ? slot.finderName || 'Found' : `${slot.length}L`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="tw-chips-grid">
-                {searchWordGroups.rare.map((slot) => (
-                  <div
-                    key={slot.id}
-                    className={`tw-slot ${slot.revealed ? 'found rare-found' : 'unfound'}`}
-                    onMouseEnter={() => {
-                      if (slot.revealed && slot.cells?.length) setFlashedCells(slot.cells);
-                    }}
-                    onMouseLeave={() => setFlashedCells([])}
-                  >
-                    <span className="tw-slot-word">
-                      {slot.revealed && slot.word
-                        ? slot.word
-                        : `${slot.startLetter}${'•'.repeat(Math.max(1, slot.length - 1))}`}
-                    </span>
-                    <span className="tw-slot-meta">
-                      {slot.revealed ? slot.finderName || 'Found' : `${slot.length}L`}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
 
-            {/* Ultra Words Group */}
-            <div className="tw-group">
-              <div className="tw-group-header tier-ultra">
-                <span className="tw-tier-label">
-                  <span className="badge-dot u">U</span> ULTRA RARE WORDS
-                </span>
-                <span className="tw-tier-count">
-                  {gameState?.foundUltraCount || 0}/{gameState?.ultraWordTarget || 0}
-                </span>
+              {/* Rare Words Group */}
+              <div className="tw-group">
+                <div className="tw-group-header tier-rare">
+                  <span className="tw-tier-label">
+                    <span className="badge-dot r">R</span> RARE WORDS
+                  </span>
+                  <span className="tw-tier-count">
+                    {gameState?.foundRareCount || 0}/{gameState?.rareWordTarget || 0}
+                  </span>
+                </div>
+                <div className="tw-chips-grid">
+                  {searchWordGroups.rare.map((slot) => (
+                    <div
+                      key={slot.id}
+                      className={`tw-slot ${slot.revealed ? 'found rare-found' : 'unfound'}`}
+                      onMouseEnter={() => {
+                        if (slot.revealed && slot.cells?.length) setFlashedCells(slot.cells);
+                      }}
+                      onMouseLeave={() => setFlashedCells([])}
+                    >
+                      <span className="tw-slot-word">
+                        {slot.revealed && slot.word
+                          ? slot.word
+                          : `${slot.startLetter}${'•'.repeat(Math.max(1, slot.length - 1))}`}
+                      </span>
+                      <span className="tw-slot-meta">
+                        {slot.revealed ? slot.finderName || 'Found' : `${slot.length}L`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="tw-chips-grid">
-                {searchWordGroups.ultra.map((slot) => (
-                  <div
-                    key={slot.id}
-                    className={`tw-slot ${slot.revealed ? 'found ultra-found' : 'unfound'}`}
-                    onMouseEnter={() => {
-                      if (slot.revealed && slot.cells?.length) setFlashedCells(slot.cells);
-                    }}
-                    onMouseLeave={() => setFlashedCells([])}
-                  >
-                    <span className="tw-slot-word">
-                      {slot.revealed && slot.word
-                        ? slot.word
-                        : `${slot.startLetter}${'•'.repeat(Math.max(1, slot.length - 1))}`}
-                    </span>
-                    <span className="tw-slot-meta">
-                      {slot.revealed ? slot.finderName || 'Found' : `${slot.length}L`}
-                    </span>
-                  </div>
-                ))}
+
+              {/* Ultra Words Group */}
+              <div className="tw-group">
+                <div className="tw-group-header tier-ultra">
+                  <span className="tw-tier-label">
+                    <span className="badge-dot u">U</span> ULTRA RARE WORDS
+                  </span>
+                  <span className="tw-tier-count">
+                    {gameState?.foundUltraCount || 0}/{gameState?.ultraWordTarget || 0}
+                  </span>
+                </div>
+                <div className="tw-chips-grid">
+                  {searchWordGroups.ultra.map((slot) => (
+                    <div
+                      key={slot.id}
+                      className={`tw-slot ${slot.revealed ? 'found ultra-found' : 'unfound'}`}
+                      onMouseEnter={() => {
+                        if (slot.revealed && slot.cells?.length) setFlashedCells(slot.cells);
+                      }}
+                      onMouseLeave={() => setFlashedCells([])}
+                    >
+                      <span className="tw-slot-word">
+                        {slot.revealed && slot.word
+                          ? slot.word
+                          : `${slot.startLetter}${'•'.repeat(Math.max(1, slot.length - 1))}`}
+                      </span>
+                      <span className="tw-slot-meta">
+                        {slot.revealed ? slot.finderName || 'Found' : `${slot.length}L`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        </aside>
+          </aside>
+        )}
       </div>
 
       {/* WORD ANNOUNCE SLIDE-DOWN TOAST */}
